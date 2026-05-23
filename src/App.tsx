@@ -10,6 +10,7 @@ import {
 } from './game/engine';
 import { corpPlayTurnStep, runnerPlayTurnStep } from './game/ai';
 import { Board } from './components/Board';
+import { CardComponent } from './components/CardComponent';
 import { RunPanel } from './components/RunPanel';
 import { LogPanel } from './components/LogPanel';
 import { QAPanel } from './components/QAPanel';
@@ -483,39 +484,69 @@ function App() {
         </div>
       )}
 
-      {/* 멀리건 알림 배너 */}
-      {(state.phase === 'corp-mulligan' || state.phase === 'runner-mulligan') && (
-        <div className="glass-panel border-cyan-500/50 bg-cyan-950/20 p-4 flex flex-col sm:flex-row items-center justify-between gap-4">
-          <div className="flex items-center gap-3">
-            <span className="text-xl">🃏</span>
-            <div>
-              <h3 className="font-orbitron font-extrabold text-sm text-cyan-400 uppercase tracking-widest">
-                [MULLIGAN PHASE: 멀리건 단계]
-              </h3>
-              <p className="text-xs text-slate-300 mt-0.5 leading-relaxed">
-                {state.phase === 'corp-mulligan' ? 'Corporation' : 'Runner'}의 시작 손패 교정 차례입니다.
-                손패 중에서 교체할 카드를 클릭하여 선택한 뒤 [멀리건] 버튼을 누르거나, 현재 손패를 그대로 유지하려면 [그냥 시작]을 누르세요.
-                {mulliganSelectedIds.size > 0 && (
-                  <span className="text-amber-400 font-bold block mt-1">
-                    (선택된 교체 카드: {mulliganSelectedIds.size}장)
-                  </span>
-                )}
-              </p>
+      {/* 대형 멀리건 선택 모달 */}
+      {state && ((state.phase === 'corp-mulligan' && state.gameMode === 'corp-human') || 
+       (state.phase === 'runner-mulligan' && state.gameMode === 'runner-human')) && (
+        <div className="fixed inset-0 bg-slate-950/95 backdrop-blur-[12px] z-[30000] flex flex-col items-center justify-center p-6 select-none animate-tooltipFadeIn">
+          <div className="text-center max-w-2xl mb-8">
+            <span className="text-4xl block mb-3 filter drop-shadow-md">🃏</span>
+            <h2 className="text-2xl md:text-3xl font-extrabold font-orbitron tracking-widest text-cyan-400 uppercase">
+              {state.phase === 'corp-mulligan' ? 'Corporation Mulligan' : 'Runner Mulligan'}
+            </h2>
+            <div className="text-[10px] text-slate-500 font-orbitron mt-1 uppercase tracking-wider">
+              시작 손패 교정 단계 (Mulligan Phase)
             </div>
+            <p className="text-xs md:text-sm text-slate-300 mt-4 leading-relaxed bg-slate-900/60 p-4 rounded-xl border border-slate-900 shadow-inner">
+              처음 받은 5장의 카드 중 **마음에 들지 않아 교체할 카드**들을 클릭하여 선택해 주세요.
+              선택한 카드는 덱에 다시 섞이고 그 개수만큼 새로 드로우합니다. (각 플레이어당 1회 교체 가능)
+            </p>
           </div>
-          <div className="flex gap-3">
+
+          {/* 카드 가로 배치 리스트 */}
+          <div className="flex flex-wrap gap-5 justify-center items-center max-w-full my-6 p-4 bg-slate-950/40 rounded-2xl border border-slate-900/60">
+            {((state.phase === 'corp-mulligan' ? state.corp.hand : state.runner.hand) || []).map((card) => {
+              const isSelected = mulliganSelectedIds.has(card.id);
+              const sideGlow = state.phase === 'corp-mulligan' ? 'corp' : 'runner';
+              return (
+                <div
+                  key={card.id}
+                  onClick={() => handleSelectCard(card.id)}
+                  className={`cursor-pointer transition-all transform hover:scale-105 duration-200 relative ${
+                    isSelected ? 'scale-[1.03] filter drop-shadow-[0_0_15px_rgba(245,158,11,0.55)]' : ''
+                  }`}
+                >
+                  <CardComponent
+                    card={card}
+                    interactive={true}
+                    onClick={() => handleSelectCard(card.id)}
+                    isSelected={isSelected}
+                    glowColor={isSelected ? sideGlow : null}
+                    isHand={true}
+                  />
+                  {isSelected && (
+                    <div className="absolute -top-2.5 left-1/2 -translate-x-1/2 bg-amber-500 text-black font-orbitron font-extrabold text-[9px] px-2 py-0.5 rounded-full shadow-md border border-slate-950 z-20 animate-pulse uppercase tracking-wider">
+                      교체 (Replace)
+                    </div>
+                  )}
+                </div>
+              );
+            })}
+          </div>
+
+          {/* 푸터 조작 버튼 */}
+          <div className="flex flex-wrap gap-4 mt-6">
             <button
               onClick={() => handleMulligan(state.phase === 'corp-mulligan' ? 'Corp' : 'Runner', true)}
               disabled={mulliganSelectedIds.size === 0}
-              className="bg-cyan-900 border border-cyan-400 text-white font-bold font-orbitron text-xs px-4 py-2 rounded hover:bg-cyan-700 disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer transition-all"
+              className="bg-cyan-900 border border-cyan-400 text-white font-bold font-orbitron text-xs px-6 py-3 rounded-lg hover:bg-cyan-700 disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer transition-all uppercase tracking-wider shadow-lg disabled:shadow-none"
             >
-              선택한 {mulliganSelectedIds.size}장 멀리건 (Mulligan)
+              선택한 {mulliganSelectedIds.size}장 교체하고 시작 (Mulligan)
             </button>
             <button
               onClick={() => handleMulligan(state.phase === 'corp-mulligan' ? 'Corp' : 'Runner', false)}
-              className="bg-slate-800 border border-slate-600 text-slate-300 font-bold font-orbitron text-xs px-4 py-2 rounded hover:bg-slate-700 cursor-pointer transition-all"
+              className="bg-slate-900 border border-slate-700 text-slate-300 font-bold font-orbitron text-xs px-6 py-3 rounded-lg hover:bg-slate-800 hover:text-white cursor-pointer transition-all uppercase tracking-wider shadow-lg"
             >
-              그냥 시작 (Keep Hand)
+              교체 없이 그냥 시작 (Keep Hand)
             </button>
           </div>
         </div>
