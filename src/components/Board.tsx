@@ -7,6 +7,7 @@ interface BoardProps {
   selectedCardId: string | null;
   onSelectCard: (cardId: string | null) => void;
   onEndRunnerTurn: () => void;
+  onEndCorpTurn: () => void;
   onBasicAction: (actionType: 'gain-credit' | 'draw-card') => void;
   onInitiateRun: (serverName: ServerName) => void;
   onAIAction: () => void;
@@ -19,6 +20,7 @@ export const Board: React.FC<BoardProps> = ({
   selectedCardId,
   onSelectCard,
   onEndRunnerTurn,
+  onEndCorpTurn,
   onBasicAction,
   onInitiateRun,
   onAIAction,
@@ -52,9 +54,9 @@ export const Board: React.FC<BoardProps> = ({
   };
 
   return (
-    <div className="flex flex-col gap-6 w-full max-w-7xl mx-auto">
+    <div className={`flex w-full max-w-7xl mx-auto ${isCorpPlayerHuman ? 'flex-col-reverse gap-6' : 'flex-col gap-6'}`}>
       
-      {/* ----------------- CORPORATION AREA (상단) ----------------- */}
+      {/* ----------------- CORPORATION AREA (상단 또는 하단) ----------------- */}
       <div className={`p-4 rounded-xl border transition-all ${isCorpActive ? 'bg-rose-950/5 border-rose-500/30' : 'bg-slate-900/10 border-slate-800'}`}>
         <div className="flex justify-between items-center mb-3">
           <div className="flex items-center gap-3">
@@ -63,7 +65,7 @@ export const Board: React.FC<BoardProps> = ({
             </span>
             <div className="flex gap-2 text-xs font-orbitron">
               <span className="bg-slate-950 px-2 py-0.5 rounded border border-slate-800">
-                Score: <strong className="text-rose-400">{corp.score} / 6P</strong>
+                Score: <strong className="text-rose-400">{corp.score} / 7P</strong>
               </span>
               <span className="bg-slate-950 px-2 py-0.5 rounded border border-slate-800">
                 Credits: <strong className="text-amber-400">{corp.credits}🪙</strong>
@@ -74,15 +76,23 @@ export const Board: React.FC<BoardProps> = ({
             </div>
           </div>
           
-          {/* Corp 기본행동 커맨드 */}
+          {/* Corp 기본행동 커맨드 및 차례 종료 */}
           {isCorpActive && isCorpPlayerHuman && phase === 'corp-action' && (
             <div className="flex gap-2">
-              <button onClick={() => onBasicAction('gain-credit')} className="neon-button corp py-1 text-[10px]">
-                +1 크레딧 (1⚡)
-              </button>
-              <button onClick={() => onBasicAction('draw-card')} className="neon-button corp py-1 text-[10px]">
-                카드 드로우 (1⚡)
-              </button>
+              {corp.clicks > 0 ? (
+                <>
+                  <button onClick={() => onBasicAction('gain-credit')} className="neon-button corp py-1 text-[10px]">
+                    +1 크레딧 (1⚡)
+                  </button>
+                  <button onClick={() => onBasicAction('draw-card')} className="neon-button corp py-1 text-[10px]">
+                    카드 드로우 (1⚡)
+                  </button>
+                </>
+              ) : (
+                <button onClick={onEndCorpTurn} className="neon-button corp py-1 text-[10px] bg-amber-500/20 border-amber-500 animate-pulse text-amber-300">
+                  차례 종료 (End Turn)
+                </button>
+              )}
             </div>
           )}
         </div>
@@ -159,6 +169,7 @@ export const Board: React.FC<BoardProps> = ({
                           onClick={() => handleCardClick(ice)}
                           isSelected={selectedCardId === ice.id}
                           hasActiveSelection={selectedCardId !== null}
+                          forceFaceUp={isCorpPlayerHuman}
                         />
                       </div>
                     </div>
@@ -166,6 +177,23 @@ export const Board: React.FC<BoardProps> = ({
                 })}
                 {servers.RD.ice.length === 0 && <span className="text-[9px] text-slate-600 italic">ICE 방어 없음</span>}
               </div>
+
+              {/* R&D 서버 루트 업그레이드 (가로 배치) */}
+              {servers.RD.root.length > 0 && (
+                <div className="flex justify-center gap-1.5 bg-slate-900/60 p-1.5 rounded-lg overflow-x-auto">
+                  {servers.RD.root.map(c => (
+                    <CardComponent
+                      key={c.id}
+                      card={c}
+                      interactive={isCorpPlayerHuman}
+                      onClick={() => handleCardClick(c)}
+                      isSelected={selectedCardId === c.id}
+                      hasActiveSelection={selectedCardId !== null}
+                      forceFaceUp={isCorpPlayerHuman}
+                    />
+                  ))}
+                </div>
+              )}
               
               <button
                 onClick={() => isRunnerPlayerHuman && isRunnerActive && onInitiateRun('RD')}
@@ -198,6 +226,7 @@ export const Board: React.FC<BoardProps> = ({
                           onClick={() => handleCardClick(ice)}
                           isSelected={selectedCardId === ice.id}
                           hasActiveSelection={selectedCardId !== null}
+                          forceFaceUp={isCorpPlayerHuman}
                         />
                       </div>
                     </div>
@@ -205,6 +234,23 @@ export const Board: React.FC<BoardProps> = ({
                 })}
                 {servers.HQ.ice.length === 0 && <span className="text-[9px] text-slate-600 italic">ICE 방어 없음</span>}
               </div>
+
+              {/* HQ 서버 루트 업그레이드 (가로 배치) */}
+              {servers.HQ.root.length > 0 && (
+                <div className="flex justify-center gap-1.5 bg-slate-900/60 p-1.5 rounded-lg overflow-x-auto">
+                  {servers.HQ.root.map(c => (
+                    <CardComponent
+                      key={c.id}
+                      card={c}
+                      interactive={isCorpPlayerHuman}
+                      onClick={() => handleCardClick(c)}
+                      isSelected={selectedCardId === c.id}
+                      hasActiveSelection={selectedCardId !== null}
+                      forceFaceUp={isCorpPlayerHuman}
+                    />
+                  ))}
+                </div>
+              )}
 
               <button
                 onClick={() => isRunnerPlayerHuman && isRunnerActive && onInitiateRun('HQ')}
@@ -237,6 +283,7 @@ export const Board: React.FC<BoardProps> = ({
                           onClick={() => handleCardClick(ice)}
                           isSelected={selectedCardId === ice.id}
                           hasActiveSelection={selectedCardId !== null}
+                          forceFaceUp={isCorpPlayerHuman}
                         />
                       </div>
                     </div>
@@ -244,6 +291,23 @@ export const Board: React.FC<BoardProps> = ({
                 })}
                 {servers.Archives.ice.length === 0 && <span className="text-[9px] text-slate-600 italic">ICE 방어 없음</span>}
               </div>
+
+              {/* Archives 서버 루트 업그레이드 (가로 배치) */}
+              {servers.Archives.root.length > 0 && (
+                <div className="flex justify-center gap-1.5 bg-slate-900/60 p-1.5 rounded-lg overflow-x-auto">
+                  {servers.Archives.root.map(c => (
+                    <CardComponent
+                      key={c.id}
+                      card={c}
+                      interactive={isCorpPlayerHuman}
+                      onClick={() => handleCardClick(c)}
+                      isSelected={selectedCardId === c.id}
+                      hasActiveSelection={selectedCardId !== null}
+                      forceFaceUp={isCorpPlayerHuman}
+                    />
+                  ))}
+                </div>
+              )}
 
               <button
                 onClick={() => isRunnerPlayerHuman && isRunnerActive && onInitiateRun('Archives')}
@@ -297,6 +361,7 @@ export const Board: React.FC<BoardProps> = ({
                                 onClick={() => handleCardClick(ice)}
                                 isSelected={selectedCardId === ice.id}
                                 hasActiveSelection={selectedCardId !== null}
+                                forceFaceUp={isCorpPlayerHuman}
                               />
                             </div>
                           </div>
@@ -315,6 +380,7 @@ export const Board: React.FC<BoardProps> = ({
                             onClick={() => handleCardClick(c)}
                             isSelected={selectedCardId === c.id}
                             hasActiveSelection={selectedCardId !== null}
+                            forceFaceUp={isCorpPlayerHuman}
                           />
                         </div>
                       ))}
@@ -379,7 +445,7 @@ export const Board: React.FC<BoardProps> = ({
             </span>
             <div className="flex gap-2 text-xs font-orbitron">
               <span className="bg-slate-950 px-2 py-0.5 rounded border border-slate-800">
-                Score: <strong className="text-cyan-400">{runner.score} / 6P</strong>
+                Score: <strong className="text-cyan-400">{runner.score} / 7P</strong>
               </span>
               <span className="bg-slate-950 px-2 py-0.5 rounded border border-slate-800">
                 Credits: <strong className="text-amber-400">{runner.credits}🪙</strong>

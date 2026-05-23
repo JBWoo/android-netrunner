@@ -12,6 +12,8 @@ interface RunPanelProps {
   onAccessCard: (trash: boolean) => void;
   onProceedRun: () => void;
   onPaySkunkworks: (paymentType: 'credits' | 'clicks' | 'jackout') => void;
+  onBoostStrength: (cardId: string) => void;
+  onContinueAfterKarunaSub: (jackout: boolean) => void;
 }
 
 export const RunPanel: React.FC<RunPanelProps> = ({
@@ -25,6 +27,8 @@ export const RunPanel: React.FC<RunPanelProps> = ({
   onAccessCard,
   onProceedRun,
   onPaySkunkworks,
+  onBoostStrength,
+  onContinueAfterKarunaSub,
 }) => {
   const { run, gameMode, runner, corp } = state;
   if (!run) return null;
@@ -213,8 +217,45 @@ export const RunPanel: React.FC<RunPanelProps> = ({
                 </div>
               )}
 
+              {/* Karuna 잭아웃 선택 분기 */}
+              {run.karunaJackoutWindow && (
+                <div className="flex flex-col gap-3">
+                  <h3 className="font-orbitron font-bold text-rose-400 text-sm animate-pulse flex items-center gap-1.5">
+                    ⚠️ SECURITY WARNING: KARUNĀ BACKLASH ACTIVE
+                  </h3>
+                  <p className="text-xs leading-relaxed text-slate-300">
+                    Karunā의 첫 번째 서브루틴 공격으로 러너에게 2점의 넷 데미지가 가해졌습니다!
+                    지금 런을 즉시 잭아웃(도망)하시겠습니까, 아니면 남은 피해를 입을 가능성을 안고 계속 진행하시겠습니까?
+                  </p>
+                  
+                  {isRunnerHuman ? (
+                    <div className="flex gap-4 mt-4">
+                      <button
+                        onClick={() => onContinueAfterKarunaSub(true)}
+                        className="neon-button w-full py-2 hover:bg-slate-800 text-rose-400 border-rose-500/50 text-center justify-center cursor-pointer font-bold"
+                      >
+                        Karunā 효과로 이탈하기 (Jack Out)
+                      </button>
+                      <button
+                        onClick={() => onContinueAfterKarunaSub(false)}
+                        className="neon-button runner w-full py-2 text-center justify-center cursor-pointer font-bold"
+                      >
+                        데미지 입고 런 계속 진행하기 (Continue)
+                      </button>
+                    </div>
+                  ) : (
+                    <div className="mt-4">
+                      <div className="text-xs text-cyan-400 italic mb-2">Runner AI가 Karunā 효과를 연산하고 있습니다...</div>
+                      <button onClick={onProceedRun} className="neon-button runner w-full">
+                        시뮬레이션 진행 (Proceed)
+                      </button>
+                    </div>
+                  )}
+                </div>
+              )}
+
               {/* 2단계: 조우(Encounter) - 브레이커 작동 및 해제 단계 */}
-              {!run.needSkunkworksPay && run.phase === 'encounter' && currentIce && (
+              {!run.needSkunkworksPay && !run.karunaJackoutWindow && run.phase === 'encounter' && currentIce && (
                 <div className="flex flex-col gap-3">
                   <div className="flex justify-between items-center">
                     <h3 className="font-orbitron font-bold text-white text-sm">
@@ -256,7 +297,8 @@ export const RunPanel: React.FC<RunPanelProps> = ({
                         <div className="flex flex-col gap-2 max-h-[140px] overflow-y-auto">
                            {matchingBreakers.map((breaker) => {
                              // 강도 매칭 검증
-                             const strengthDiff = (currentIce.strength || 0) - (breaker.strength || 0);
+                             const currentBreakerStrength = (breaker.strength || 0) + (run.breakerStrengthBoost?.[breaker.id] || 0);
+                             const strengthDiff = (currentIce.strength || 0) - currentBreakerStrength;
                              const needStrengthBoost = strengthDiff > 0;
                              const boostCost = breaker.codeName === 'carmen' ? 2 : 1; // 카르멘은 2크레딧당 +3
                              const boostAmt = breaker.codeName === 'carmen' ? 3 : 1;
@@ -274,28 +316,12 @@ export const RunPanel: React.FC<RunPanelProps> = ({
                                >
                                  <div>
                                    <span className="font-bold text-cyan-400">{breaker.title}</span>
-                                   <span className="text-slate-400 ml-2">(강도: {breaker.strength})</span>
+                                   <span className="text-slate-400 ml-2">(강도: {currentBreakerStrength})</span>
                                  </div>
                                  <div className="flex gap-1.5">
                                    {needStrengthBoost && (
                                      <button
-                                       onClick={() => {
-                                         // 임시적으로 UI 단에서 강도를 올려주는 엔진 액션 연동 (강도 업)
-                                         breaker.strength = (breaker.strength || 0) + boostAmt;
-                                         
-                                         // Overclock 임시 크레딧 차감 우선
-                                         let remainingCost = boostCost;
-                                         if (run.overclockCredits !== undefined && run.overclockCredits > 0) {
-                                           const usedFromTemp = Math.min(run.overclockCredits, remainingCost);
-                                           run.overclockCredits -= usedFromTemp;
-                                           remainingCost -= usedFromTemp;
-                                         }
-                                         if (remainingCost > 0) {
-                                           runner.credits -= remainingCost;
-                                         }
-                                         
-                                         onProceedRun(); // 강도 변경 후 UI 강제 리렌더
-                                       }}
+                                       onClick={() => onBoostStrength(breaker.id)}
                                        disabled={!canAffordBoost}
                                        className="bg-purple-950 text-purple-400 border border-purple-800 px-2 py-0.5 rounded text-[10px] hover:bg-purple-900 cursor-pointer"
                                      >

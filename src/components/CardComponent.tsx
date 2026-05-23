@@ -10,6 +10,7 @@ interface CardComponentProps {
   forceFaceUp?: boolean; // 레즈 여부 상관없이 무조건 앞면 노출 여부
   glowColor?: 'runner' | 'corp' | 'agenda' | null;
   isHand?: boolean; // TCG 스타일 손패 카드 여부
+  isMulligan?: boolean; // 멀리건용 대형 카드 여부
   isSelected?: boolean; // 선택 상태 여부
   hasActiveSelection?: boolean; // 현재 클릭 모달 활성화 여부
 }
@@ -22,6 +23,7 @@ export const CardComponent: React.FC<CardComponentProps> = ({
   forceFaceUp = false,
   glowColor = null,
   isHand = false,
+  isMulligan = false,
   isSelected = false,
   hasActiveSelection = false,
 }) => {
@@ -91,10 +93,10 @@ export const CardComponent: React.FC<CardComponentProps> = ({
       <div
         onClick={interactive ? onClick : undefined}
         className={`netrunner-card border text-left flex flex-col justify-between glass-panel ${
-          useImage ? 'p-0 overflow-hidden' : (isHand ? 'p-3 ' : 'p-2 ') + getCardBg()
+          useImage ? 'p-0 overflow-hidden' : (isMulligan ? 'p-4 ' : isHand ? 'p-3 ' : 'p-2 ') + getCardBg()
         } ${glowClass} ${
           isFaceDown ? (isCorp ? 'card-back-corp' : 'card-back-runner') : ''
-        } ${isHand ? 'hand-card shadow-lg' : ''} ${isSelected ? 'selected-card' : ''}`}
+        } ${isMulligan ? 'mulligan-card shadow-xl' : isHand ? 'hand-card shadow-lg' : ''} ${isSelected ? 'selected-card' : ''}`}
       >
         {!isFaceDown ? (
           useImage ? (
@@ -107,14 +109,14 @@ export const CardComponent: React.FC<CardComponentProps> = ({
               />
               
               {/* 이미지 위 오버레이 정보 (발전, 크레딧, 카운터, 강도) */}
-              <div className={`absolute inset-0 flex flex-col justify-between ${isHand ? 'p-2.5 bg-gradient-to-t from-black/90 via-black/10 to-black/50' : 'p-1.5 bg-gradient-to-t from-black/80 via-transparent to-black/30'} pointer-events-none`}>
+              <div className={`absolute inset-0 flex flex-col justify-between ${isMulligan ? 'p-4 bg-gradient-to-t from-black/95 via-black/20 to-black/60' : isHand ? 'p-2.5 bg-gradient-to-t from-black/90 via-black/10 to-black/50' : 'p-1.5 bg-gradient-to-t from-black/80 via-transparent to-black/30'} pointer-events-none`}>
                 {/* 상단 띠: 아젠다인 경우 승점/요구량 표시 */}
                 <div className="flex justify-between items-start">
-                  <div className={`${isHand ? 'text-[9.5px]' : 'text-[7px]'} text-white/80 bg-black/60 px-1 rounded-sm line-clamp-1 max-w-[70%] font-semibold`}>
+                  <div className={`${isMulligan ? 'text-[15px]' : isHand ? 'text-[9.5px]' : 'text-[7px]'} text-white/80 bg-black/60 px-1 rounded-sm line-clamp-1 max-w-[70%] font-semibold`}>
                     {card.title}
                   </div>
                   {card.type === 'Agenda' && (
-                    <div className={`${isHand ? 'text-[10px]' : 'text-[8px]'} font-orbitron font-extrabold text-green-400 bg-black/75 px-1 rounded-sm`}>
+                    <div className={`${isMulligan ? 'text-[13px]' : isHand ? 'text-[10px]' : 'text-[8px]'} font-orbitron font-extrabold text-green-400 bg-black/75 px-1 rounded-sm`}>
                       {card.advancementCost}/{card.agendaPoints}P
                     </div>
                   )}
@@ -124,24 +126,24 @@ export const CardComponent: React.FC<CardComponentProps> = ({
                 <div className="flex justify-between items-end">
                   <div className="flex flex-col gap-0.5">
                     {card.advancedCounters > 0 && (
-                      <span className={`${isHand ? 'text-[9px] px-1.5' : 'text-[7.5px] px-1'} bg-red-600 text-white font-bold border border-red-500 rounded-sm font-orbitron shadow`}>
+                      <span className={`${isMulligan ? 'text-[12px] px-2.5 py-0.5' : isHand ? 'text-[9px] px-1.5' : 'text-[7.5px] px-1'} bg-red-600 text-white font-bold border border-red-500 rounded-sm font-orbitron shadow`}>
                         ADV:{card.advancedCounters}
                       </span>
                     )}
                     {card.hostedCredits > 0 && (
-                      <span className={`${isHand ? 'text-[9px] px-1.5' : 'text-[7.5px] px-1'} bg-amber-500 text-black font-bold border border-amber-400 rounded-sm font-orbitron shadow`}>
+                      <span className={`${isMulligan ? 'text-[12px] px-2.5 py-0.5' : isHand ? 'text-[9px] px-1.5' : 'text-[7.5px] px-1'} bg-amber-500 text-black font-bold border border-amber-400 rounded-sm font-orbitron shadow`}>
                         🪙:{card.hostedCredits}
                       </span>
                     )}
                     {card.hostedCounters > 0 && (
-                      <span className={`${isHand ? 'text-[9px] px-1.5' : 'text-[7.5px] px-1'} bg-cyan-500 text-black font-bold border border-cyan-400 rounded-sm font-orbitron shadow`}>
+                      <span className={`${isMulligan ? 'text-[12px] px-2.5 py-0.5' : isHand ? 'text-[9px] px-1.5' : 'text-[7.5px] px-1'} bg-cyan-500 text-black font-bold border border-cyan-400 rounded-sm font-orbitron shadow`}>
                         🔋:{card.hostedCounters}
                       </span>
                     )}
                   </div>
                   
                   {card.strength !== undefined && (
-                    <div className={`${isHand ? 'text-[11px] px-2 py-0.5' : 'text-[9px] px-1.5 py-0.5'} font-orbitron font-extrabold text-cyan-400 bg-black/85 rounded border border-cyan-800/50 shadow`}>
+                    <div className={`${isMulligan ? 'text-[14px] px-2.5 py-1' : isHand ? 'text-[11px] px-2 py-0.5' : 'text-[9px] px-1.5 py-0.5'} font-orbitron font-extrabold text-cyan-400 bg-black/85 rounded border border-cyan-800/50 shadow`}>
                       {card.strength}
                     </div>
                   )}
@@ -153,20 +155,20 @@ export const CardComponent: React.FC<CardComponentProps> = ({
             <>
               {/* 상단: 타이틀 & 코스트 */}
               <div className="flex justify-between items-start gap-1">
-                <div className={`${isHand ? 'text-[12px]' : 'text-[10px]'} font-bold leading-tight line-clamp-2 uppercase tracking-wide`}>
+                <div className={`${isMulligan ? 'text-[16px]' : isHand ? 'text-[12px]' : 'text-[10px]'} font-bold leading-tight line-clamp-2 uppercase tracking-wide`}>
                   {card.title}
                 </div>
-                <div className={`${isHand ? 'text-[11px]' : 'text-[10px]'} font-orbitron font-extrabold text-amber-400 flex items-center`}>
+                <div className={`${isMulligan ? 'text-[14px]' : isHand ? 'text-[11px]' : 'text-[10px]'} font-orbitron font-extrabold text-amber-400 flex items-center`}>
                   {card.type === 'Agenda' ? `${card.advancementCost}/${card.agendaPoints}P` : `${card.cost}🪙`}
                 </div>
               </div>
 
               {/* 중단: 텍스트 및 기본 정보 */}
               <div className="flex-1 flex flex-col justify-center my-1">
-                <div className={`${isHand ? 'text-[9.5px]' : 'text-[8px]'} opacity-75 font-orbitron mb-0.5 text-slate-400`}>
+                <div className={`${isMulligan ? 'text-[12px]' : isHand ? 'text-[9.5px]' : 'text-[8px]'} opacity-75 font-orbitron mb-0.5 text-slate-400`}>
                   {card.type} {card.subTypes.length > 0 ? `(${card.subTypes.join(', ')})` : ''}
                 </div>
-                <div className={`${isHand ? 'text-[9px] line-clamp-5' : 'text-[7.5px] line-clamp-4'} leading-snug font-light text-slate-200`}>
+                <div className={`${isMulligan ? 'text-[11px] line-clamp-none' : isHand ? 'text-[9px] line-clamp-5' : 'text-[7.5px] line-clamp-4'} leading-snug font-light text-slate-200`}>
                   {formatText(card.text)}
                 </div>
               </div>
@@ -175,17 +177,17 @@ export const CardComponent: React.FC<CardComponentProps> = ({
               <div className="flex justify-between items-end">
                 <div className="flex flex-col gap-0.5">
                   {card.advancedCounters > 0 && (
-                    <span className={`${isHand ? 'text-[9.5px] px-1.5' : 'text-[8px] px-1'} bg-red-950 text-red-400 border border-red-800 rounded-sm font-orbitron`}>
+                    <span className={`${isMulligan ? 'text-[12px] px-2.5 py-0.5' : isHand ? 'text-[9.5px] px-1.5' : 'text-[8px] px-1'} bg-red-950 text-red-400 border border-red-800 rounded-sm font-orbitron`}>
                       ADV:{card.advancedCounters}
                     </span>
                   )}
                   {card.hostedCredits > 0 && (
-                    <span className={`${isHand ? 'text-[9.5px] px-1.5' : 'text-[8px] px-1'} bg-amber-950 text-amber-400 border border-amber-800 rounded-sm font-orbitron`}>
+                    <span className={`${isMulligan ? 'text-[12px] px-2.5 py-0.5' : isHand ? 'text-[9.5px] px-1.5' : 'text-[8px] px-1'} bg-amber-950 text-amber-400 border border-amber-800 rounded-sm font-orbitron`}>
                       🪙:{card.hostedCredits}
                     </span>
                   )}
                   {card.hostedCounters > 0 && (
-                    <span className={`${isHand ? 'text-[9.5px] px-1.5' : 'text-[8px] px-1'} bg-cyan-950 text-cyan-400 border border-cyan-800 rounded-sm font-orbitron`}>
+                    <span className={`${isMulligan ? 'text-[12px] px-2.5 py-0.5' : isHand ? 'text-[9.5px] px-1.5' : 'text-[8px] px-1'} bg-cyan-950 text-cyan-400 border border-cyan-800 rounded-sm font-orbitron`}>
                       🔋:{card.hostedCounters}
                     </span>
                   )}
@@ -193,7 +195,7 @@ export const CardComponent: React.FC<CardComponentProps> = ({
                 
                 {/* 강도 표시 (ICE 또는 브레이커) */}
                 {card.strength !== undefined && (
-                  <div className={`${isHand ? 'text-[11px]' : 'text-[9px]'} font-orbitron font-extrabold text-cyan-400`}>
+                  <div className={`${isMulligan ? 'text-[14px]' : isHand ? 'text-[11px]' : 'text-[9px]'} font-orbitron font-extrabold text-cyan-400`}>
                     STR:{card.strength}
                   </div>
                 )}

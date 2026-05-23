@@ -6,7 +6,9 @@ import {
   discardCard, initiateRun, transitionRun, breakSubroutine, 
   breakSubWithClick, resolveSubroutines, passIce, jackOut, 
   resolveAccessCard, checkVictory, checkTurnEnd, endRunnerTurn,
-  paySkunkworksCost, playRunEventCard, resolveMulligan
+  paySkunkworksCost, playRunEventCard, resolveMulligan,
+  endCorpTurn, boostBreakerStrength, continueAfterKarunaSub,
+  takePennyshaverCredits
 } from './game/engine';
 import { corpPlayTurnStep, runnerPlayTurnStep } from './game/ai';
 import { Board } from './components/Board';
@@ -15,7 +17,6 @@ import { RunPanel } from './components/RunPanel';
 import { LogPanel } from './components/LogPanel';
 import { QAPanel } from './components/QAPanel';
 import { HelpPanel } from './components/HelpPanel';
-
 function App() {
   const [state, setState] = useState<GameState | null>(null);
   const [selectedMode, setSelectedMode] = useState<GameMode>('runner-human');
@@ -24,6 +25,17 @@ function App() {
   const [autoPlay, setAutoPlay] = useState<boolean>(true);
   const [selectedCardId, setSelectedCardId] = useState<string | null>(null);
   const [mulliganSelectedIds, setMulliganSelectedIds] = useState<Set<string>>(new Set());
+
+  // ESC 키로 모달 닫기
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') {
+        setSelectedCardId(null);
+      }
+    };
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, []);
 
   // 게임 시작 처리
   const handleStartGame = (mode: GameMode, difficulty: Difficulty) => {
@@ -159,29 +171,15 @@ function App() {
   }, [autoPlay, state]);
 
   const handleSelectCard = (cardId: string | null) => {
-    if (!state) return;
-    const isMulligan = state.phase === 'corp-mulligan' || state.phase === 'runner-mulligan';
-    if (cardId && isMulligan) {
-      setMulliganSelectedIds(prev => {
-        const next = new Set(prev);
-        if (next.has(cardId)) {
-          next.delete(cardId);
-        } else {
-          next.add(cardId);
-        }
-        return next;
-      });
-      return;
-    }
     setSelectedCardId(cardId);
   };
 
   const handleMulligan = (side: 'Corp' | 'Runner', confirm: boolean) => {
-    const selectedList = confirm ? Array.from(mulliganSelectedIds) : [];
-    setState(prev => prev ? resolveMulligan(prev, side, selectedList) : null);
-    setMulliganSelectedIds(new Set());
-    setSelectedCardId(null);
-  };
+     const selectedList = confirm ? Array.from(mulliganSelectedIds) : [];
+     setState(prev => prev ? resolveMulligan(prev, side, selectedList) : null);
+     setMulliganSelectedIds(new Set());
+     setSelectedCardId(null);
+   };
 
   // --- 플레이어 기본 행동 핸들러 ---
   const handleBasicAction = (actionType: 'gain-credit' | 'draw-card') => {
@@ -196,6 +194,11 @@ function App() {
 
   const handlePlay = (cardId: string) => {
     setState(prev => prev ? playCard(prev, cardId) : null);
+    setSelectedCardId(null);
+  };
+
+  const handleTakePennyshaverCredits = (cardId: string) => {
+    setState(prev => prev ? takePennyshaverCredits(prev, cardId) : null);
     setSelectedCardId(null);
   };
 
@@ -235,6 +238,11 @@ function App() {
     setSelectedCardId(null);
   };
 
+  const handleEndCorpTurn = () => {
+    setState(prev => prev ? endCorpTurn(prev) : null);
+    setSelectedCardId(null);
+  };
+
   // --- 런 상태 가이드 상호작용 핸들러 ---
   const handleRezIce = (cardId: string) => {
     setState(prev => prev ? rezCard(prev, cardId) : null);
@@ -270,6 +278,14 @@ function App() {
 
   const handlePaySkunkworksCost = (paymentType: 'credits' | 'clicks' | 'jackout') => {
     setState(prev => prev ? paySkunkworksCost(prev, paymentType) : null);
+  };
+
+  const handleBoostStrength = (cardId: string) => {
+    setState(prev => prev ? boostBreakerStrength(prev, cardId) : null);
+  };
+
+  const handleContinueAfterKarunaSub = (jackout: boolean) => {
+    setState(prev => prev ? continueAfterKarunaSub(prev, jackout) : null);
   };
 
   // --- 메인 렌더링 분기 ---
@@ -396,6 +412,8 @@ function App() {
           onAccessCard={handleAccessCard}
           onProceedRun={handleProceedRun}
           onPaySkunkworks={handlePaySkunkworksCost}
+          onBoostStrength={handleBoostStrength}
+          onContinueAfterKarunaSub={handleContinueAfterKarunaSub}
         />
       )}
 
@@ -521,7 +539,9 @@ function App() {
                     onClick={() => handleSelectCard(card.id)}
                     isSelected={isSelected}
                     glowColor={isSelected ? sideGlow : null}
-                    isHand={true}
+                    isMulligan={true}
+                    forceFaceUp={true}
+                    hasActiveSelection={true}
                   />
                   {isSelected && (
                     <div className="absolute -top-2.5 left-1/2 -translate-x-1/2 bg-amber-500 text-black font-orbitron font-extrabold text-[9px] px-2 py-0.5 rounded-full shadow-md border border-slate-950 z-20 animate-pulse uppercase tracking-wider">
@@ -551,6 +571,7 @@ function App() {
           </div>
         </div>
       )}
+
 
       {/* 디스카드 알림 배너 */}
       {(state.phase === 'corp-discard' || state.phase === 'runner-discard') && (
@@ -585,6 +606,7 @@ function App() {
             selectedCardId={selectedCardId}
             onSelectCard={handleSelectCard}
             onEndRunnerTurn={handleEndRunnerTurn}
+            onEndCorpTurn={handleEndCorpTurn}
             onBasicAction={handleBasicAction}
             onInitiateRun={handleInitiateRun}
             onAIAction={handleAIAction}
@@ -716,7 +738,7 @@ function App() {
 
         return (
           <div 
-            className="fixed inset-0 bg-black/75 backdrop-blur-[6px] z-[10000] flex items-center justify-center p-4 pointer-events-auto"
+            className="fixed inset-0 bg-black/75 backdrop-blur-[6px] z-[40000] flex items-center justify-center p-4 pointer-events-auto"
             onClick={() => setSelectedCardId(null)}
           >
             <div 
@@ -847,6 +869,44 @@ function App() {
                     
                     <div className="flex flex-wrap gap-2.5">
                       {(() => {
+                        const isMulliganPhase = state.phase === 'corp-mulligan' || state.phase === 'runner-mulligan';
+                        if (isMulliganPhase) {
+                          const isSelectedForMulligan = mulliganSelectedIds.has(selectedCard!.id);
+                          return (
+                            <div className="flex gap-2">
+                              {isSelectedForMulligan ? (
+                                <button
+                                  onClick={() => {
+                                    setMulliganSelectedIds(prev => {
+                                      const next = new Set(prev);
+                                      next.delete(selectedCard!.id);
+                                      return next;
+                                    });
+                                    setSelectedCardId(null);
+                                  }}
+                                  className="bg-amber-600 hover:bg-amber-500 border border-amber-400 text-black font-bold font-orbitron text-xs px-4 py-2 rounded-lg cursor-pointer transition-all"
+                                >
+                                  교체 대상에서 제외 (Keep)
+                                </button>
+                              ) : (
+                                <button
+                                  onClick={() => {
+                                    setMulliganSelectedIds(prev => {
+                                      const next = new Set(prev);
+                                      next.add(selectedCard!.id);
+                                      return next;
+                                    });
+                                    setSelectedCardId(null);
+                                  }}
+                                  className="bg-red-700 hover:bg-red-600 border border-red-500 text-white font-bold font-orbitron text-xs px-4 py-2 rounded-lg cursor-pointer transition-all animate-pulse"
+                                >
+                                  교체 대상으로 지정 (Replace)
+                                </button>
+                              )}
+                            </div>
+                          );
+                        }
+
                         // 1. 기업 손패의 카드 조작
                         if (cardLocation === 'corp-hand') {
                           if (state.phase === 'corp-discard') {
@@ -1117,6 +1177,19 @@ function App() {
                                 className="bg-cyan-900 hover:bg-cyan-800 border border-cyan-500 text-white font-bold font-orbitron text-xs px-4 py-2 rounded-lg disabled:opacity-50 disabled:cursor-not-allowed cursor-pointer transition-all"
                               >
                                 릴리즈 (1⚡ 소모) - {btnText}
+                              </button>
+                            );
+                          }
+                          
+                          if (selectedCard.codeName === 'pennyshaver') {
+                            const canCollect = state.runner.clicks >= 1 && selectedCard.hostedCredits > 0;
+                            return (
+                              <button
+                                onClick={() => handleTakePennyshaverCredits(selectedCard!.id)}
+                                disabled={!canCollect}
+                                className="bg-cyan-900 hover:bg-cyan-800 border border-cyan-500 text-white font-bold font-orbitron text-xs px-4 py-2 rounded-lg disabled:opacity-50 disabled:cursor-not-allowed cursor-pointer transition-all"
+                              >
+                                크레딧 수령 (1⚡ 소모) - {selectedCard.hostedCredits}🪙 가져오기
                               </button>
                             );
                           }

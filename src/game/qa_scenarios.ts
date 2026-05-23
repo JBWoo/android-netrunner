@@ -1,4 +1,4 @@
-import { createInitialState, executeBasicAction, installCard, paySkunkworksCost, playRunEventCard, initiateRun, resolveAccessCard, scoreAgenda, rezCard, playCard, executeResourceClick, endRunnerTurn, transitionRun, resolveSubroutines } from './engine';
+import { createInitialState, executeBasicAction, installCard, paySkunkworksCost, playRunEventCard, initiateRun, resolveAccessCard, scoreAgenda, rezCard, playCard, executeResourceClick, endRunnerTurn, transitionRun, resolveSubroutines, boostBreakerStrength, continueAfterKarunaSub, jackOut, breakSubroutine, takePennyshaverCredits, endRun } from './engine';
 import { createCardInstance } from './cards';
 
 function assert(condition: boolean, message: string) {
@@ -132,7 +132,7 @@ runTest('Jailbreak: Successful run gives 1 draw and extra access', () => {
   const jailbreak = createCardInstance('jailbreak');
   state.runner.hand.push(jailbreak);
 
-  // Jailbreak 플레이 (비용: 1🪙, 1⚡ 소모)
+  // Jailbreak 플레이 (비용: 0🪙, 1⚡ 소모)
   state = playRunEventCard(state, jailbreak.id, 'HQ');
 
   // ICE가 없는 HQ로의 런이므로 성공(success) 단계로 자동 도약
@@ -420,6 +420,208 @@ runTest('Corp ICE: Whitespace loses runner credits and ETR', () => {
   assert(state.runner.credits === 7, `Runner credits should be 7🪙 (is: ${state.runner.credits})`);
   // 아직 ETR 조건인 6🪙 이하가 아니었으므로 런이 통과되어 breach로 들어감
   assert(state.run!.phase === 'breach', `Run should succeed and transition to breach (is: ${state.run!.phase})`);
+});
+
+// ----------------------------------------------------
+// TEST 13: Corp Asset (Urtica Cipher with 0 advancedCounters)
+// ----------------------------------------------------
+runTest('Corp Asset: Urtica Cipher with 0 advancedCounters inflicts 2 net damage', () => {
+  let state = createInitialState('ai-vs-ai', 'medium');
+  state.activePlayer = 'Runner';
+  state.runner.clicks = 4;
+  state.runner.credits = 5;
+  state.corp.credits = 5;
+  state.phase = 'runner-action';
+  
+  const trap = createCardInstance('urtica_cipher');
+  state.servers['Remote 1'] = { id: 'Remote 1', name: 'Remote 1', ice: [], root: [trap] };
+  trap.advancedCounters = 0; // 0발전
+  
+  const initialHandSize = state.runner.hand.length;
+  
+  state = initiateRun(state, 'Remote 1');
+  state = resolveAccessCard(state, true);
+  
+  // 0발전이지만 최소 하한선 2점 데미지가 들어와야 함
+  assert(state.runner.hand.length === initialHandSize - 2, `Runner hand size should decrease by 2 (was ${initialHandSize}, is ${state.runner.hand.length})`);
+  assert(state.corp.credits === 4, `Corp credits should decrease by 1🪙 (was 5, is ${state.corp.credits})`);
+});
+
+// ----------------------------------------------------
+// TEST 14: Corp ICE (Karunā sequential resolution and jackout window)
+// ----------------------------------------------------
+runTest('Corp ICE: Karunā sequential resolution and jackout window', () => {
+  let state = createInitialState('runner-human', 'medium'); // human player
+  state.activePlayer = 'Runner';
+  state.runner.clicks = 4;
+  state.runner.credits = 10;
+  state.phase = 'runner-action';
+  
+  const karuna = createCardInstance('karuna');
+  state.servers.HQ.ice.push(karuna);
+  state.servers.HQ.ice[0].rezzed = true;
+  
+  state = initiateRun(state, 'HQ');
+  state = transitionRun(state); // approach -> encounter
+  
+  const initialHandSize = state.runner.hand.length;
+  
+  // 첫 번째 서브루틴 격발 (2점 데미지 및 잭아웃 윈도우 활성화)
+  state = resolveSubroutines(state);
+  
+  assert(state.run!.karunaJackoutWindow === true, 'karunaJackoutWindow should be active');
+  assert(state.runner.hand.length === initialHandSize - 2, `Runner hand size should decrease by 2 (was ${initialHandSize}, is ${state.runner.hand.length})`);
+  
+  // 잭아웃 결정 (continueAfterKarunaSub(state, true))
+  let jackoutState = continueAfterKarunaSub(state, true);
+  assert(jackoutState.run === null, 'Run should end after jackout');
+  
+  // 런 계속 결정 (continueAfterKarunaSub(state, false))
+  let continueState = continueAfterKarunaSub(state, false);
+  assert(continueState.run!.karunaJackoutWindow === false, 'karunaJackoutWindow should be closed');
+  // 두 번째 서브루틴 격발(데미지) 후 ETR이 없으므로 breach 진입
+  assert(continueState.run!.phase === 'breach', `Run should succeed and transition to breach (is: ${continueState.run!.phase})`);
+});
+
+// ----------------------------------------------------
+// TEST 15: ICE Encounter end / Run end resets temporary strength boost
+// ----------------------------------------------------
+runTest('ICE Encounter: End of encounter/run resets temporary strength boost', () => {
+  let state = createInitialState('runner-human', 'medium');
+  state.activePlayer = 'Runner';
+  state.runner.clicks = 4;
+  state.runner.credits = 10;
+  state.phase = 'runner-action';
+  
+  const cleaver = createCardInstance('cleaver');
+  state.runner.rig.push(cleaver);
+  
+  const ice = createCardInstance('palisade'); // Barrier
+  state.servers.HQ.ice.push(ice);
+  state.servers.HQ.ice[0].rezzed = true;
+  
+  state = initiateRun(state, 'HQ');
+  state = transitionRun(state); // approach -> encounter
+  
+  // 강도 올리기 (Cleaver id로 1 상승)
+  const cleaverId = state.runner.rig[0].id;
+  state = boostBreakerStrength(state, cleaverId);
+  
+  assert(state.run!.breakerStrengthBoost?.[cleaverId] === 1, 'Cleaver temporary strength boost should be 1');
+  
+  // ETR을 막기 위해 서브루틴 브레이크
+  state.run!.subroutines.forEach(sub => {
+    state = breakSubroutine(state, sub.id);
+  });
+  
+  // ICE 통과 시 강도 초기화 확인
+  state = resolveSubroutines(state); // 서브루틴 해결 후 passIce 실행
+  assert(state.run !== null, 'Run should still be active');
+  assert(state.run!.breakerStrengthBoost?.[cleaverId] === undefined, 'Strength boost should be reset after passing ICE');
+});
+
+// ----------------------------------------------------
+// TEST 16: Program (Mayfly is only trashed when actually used)
+// ----------------------------------------------------
+runTest('Program: Mayfly is only trashed when actually used', () => {
+  let state = createInitialState('runner-human', 'medium');
+  state.activePlayer = 'Runner';
+  state.runner.clicks = 4;
+  state.runner.credits = 10;
+  state.phase = 'runner-action';
+  
+  const mayfly = createCardInstance('mayfly');
+  state.runner.rig.push(mayfly);
+  const mayflyId = mayfly.id;
+  
+  const ice = createCardInstance('palisade');
+  state.servers.HQ.ice.push(ice);
+  state.servers.HQ.ice[0].rezzed = true;
+  
+  // 1. Mayfly 미사용 시 런 종료 후 파괴 안 됨
+  let state1 = initiateRun(state, 'HQ');
+  state1 = jackOut(state1);
+  assert(state1.runner.rig.some(c => c.id === mayflyId), 'Mayfly should not be trashed if not used');
+  
+  // 2. Mayfly 사용 시 런 종료 후 파괴 됨
+  let state2 = initiateRun(state, 'HQ');
+  state2 = transitionRun(state2); // approach -> encounter
+  state2 = boostBreakerStrength(state2, mayflyId); // Mayfly 사용
+  state2 = jackOut(state2);
+  assert(!state2.runner.rig.some(c => c.id === mayflyId), 'Mayfly should be trashed if used');
+  assert(state2.runner.discard.some(c => c.id === mayflyId), 'Mayfly should be in discard pile (Heap)');
+});
+
+// ----------------------------------------------------
+// TEST 17: Resource (Verbal Plasticity draws extra card once per turn)
+// ----------------------------------------------------
+runTest('Resource: Verbal Plasticity draws extra card on first draw of the turn', () => {
+  let state = createInitialState('runner-human', 'medium');
+  state.activePlayer = 'Runner';
+  state.runner.clicks = 4;
+  state.runner.credits = 10;
+  state.phase = 'runner-action';
+  
+  const vp = createCardInstance('verbal_plasticity');
+  state.runner.rig.push(vp);
+  
+  const initialHandSize = state.runner.hand.length;
+  
+  // 첫 번째 드로우 (1클릭 소모 -> 기본 1장 + VP 효과 1장 = 총 2장 드로우)
+  state = executeBasicAction(state, 'draw-card');
+  assert(state.runner.hand.length === initialHandSize + 2, `Runner hand should increase by 2 (was ${initialHandSize}, is ${state.runner.hand.length})`);
+  assert(state.runner.clicks === 3, 'Clicks should be 3');
+  
+  // 두 번째 드로우 (1클릭 소모 -> 기본 1장만 드로우)
+  state = executeBasicAction(state, 'draw-card');
+  assert(state.runner.hand.length === initialHandSize + 3, `Runner hand should increase by 1 (was ${initialHandSize + 2}, is ${state.runner.hand.length})`);
+  assert(state.runner.clicks === 2, 'Clicks should be 2');
+});
+
+// ----------------------------------------------------
+// TEST 21: Hardware Pennyshaver Console Credit Accumulation and Retrieval
+// ----------------------------------------------------
+runTest('Hardware: Pennyshaver Console credit accumulation and retrieval', () => {
+  let state = createInitialState('runner-human', 'medium');
+  state.activePlayer = 'Runner';
+  state.runner.clicks = 4;
+  state.runner.credits = 10;
+  state.phase = 'runner-action';
+  
+  const pennyshaver = createCardInstance('pennyshaver');
+  state.runner.rig.push(pennyshaver);
+  
+  // R&D에 런을 성공시킴
+  state = initiateRun(state, 'RD');
+  state = transitionRun(state); // approach -> breach (no ICE)
+  state = resolveAccessCard(state, true); // access 수행하여 run success 상태로 endRun을 태움
+  state = endRun(state);
+  
+  // Pennyshaver에 크레딧이 1개 올라갔어야 함
+  const p1 = state.runner.rig.find(c => c.codeName === 'pennyshaver');
+  assert(p1 !== undefined, 'Pennyshaver should be installed');
+  assert(p1!.hostedCredits === 1, `Pennyshaver should have 1 hosted credit (is: ${p1!.hostedCredits})`);
+  
+  // 같은 턴에 HQ에 한 번 더 성공적인 런을 함
+  state = initiateRun(state, 'HQ');
+  state = transitionRun(state);
+  state = resolveAccessCard(state, true);
+  state = endRun(state);
+  
+  // 턴당 처음만 작동하므로 여전히 크레딧은 1개여야 함
+  const p2 = state.runner.rig.find(c => c.codeName === 'pennyshaver');
+  assert(p2!.hostedCredits === 1, `Pennyshaver should still have 1 hosted credit (is: ${p2!.hostedCredits})`);
+  
+  // 클릭을 사용해 Pennyshaver에서 크레딧 수령
+  const initialRunnerCredits = state.runner.credits; // 10
+  const initialRunnerClicks = state.runner.clicks;
+  
+  state = takePennyshaverCredits(state, p2!.id);
+  
+  const p3 = state.runner.rig.find(c => c.codeName === 'pennyshaver');
+  assert(p3!.hostedCredits === 0, `Pennyshaver hosted credits should be 0 after retrieval`);
+  assert(state.runner.credits === initialRunnerCredits + 1, `Runner credits should increase by 1 (is: ${state.runner.credits})`);
+  assert(state.runner.clicks === initialRunnerClicks - 1, `Runner clicks should decrease by 1 (is: ${state.runner.clicks})`);
 });
 
 console.log('\n🧪 ===============================================');

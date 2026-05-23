@@ -52,7 +52,7 @@ export const CARD_DATABASE: { [codeName: string]: Omit<Card, 'id' | 'rezzed' | '
     side: 'Runner',
     type: 'Event',
     subTypes: [],
-    cost: 2,
+    cost: 0,
     text: 'HQ나 R&D에 런을 실행합니다. 성공 시, 카드를 액세스하기 직전에 카드 1장을 드로우하고, 이번 브리치 동안 카드 1장을 추가로 액세스합니다.',
     imageUrl: 'https://card-images.netrunnerdb.com/v2/medium/30028.jpg',
   },
@@ -94,11 +94,11 @@ export const CARD_DATABASE: { [codeName: string]: Omit<Card, 'id' | 'rezzed' | '
     title: 'Pennyshaver',
     side: 'Runner',
     type: 'Hardware',
-    subTypes: ['AI'], // Console은 AI나 특별 서브타입으로 분류
-    cost: 2,
+    subTypes: ['AI'], // Console is AI or Special subtype
+    cost: 3,
     isUnique: true,
-    memoryCost: 0, // 콘솔은 +1 MU를 제공함 (엔진에서 특수 처리)
-    text: '+1 [Memory Unit]. 매 턴 R&D나 HQ에 처음으로 성공적인 런을 할 때, 해당 런 도중 액세스한 카드 1장당 1 [Credit]을 획득합니다.',
+    memoryCost: 0, // Console MU is handled in engine
+    text: '+1 [Memory Unit]. 매 턴 HQ 또는 R&D에 처음으로 성공적인 런을 할 때, Pennyshaver 위에 1 [Credit]을 올립니다. [Click]: Pennyshaver 위의 모든 크레딧을 수령합니다.',
     imageUrl: 'https://card-images.netrunnerdb.com/v2/medium/30014.jpg',
   },
   
@@ -164,7 +164,7 @@ export const CARD_DATABASE: { [codeName: string]: Omit<Card, 'id' | 'rezzed' | '
     type: 'Program',
     subTypes: ['Sentry'], // Killer
     cost: 5,
-    strength: 3,
+    strength: 2,
     memoryCost: 1,
     text: '2 [Credits]: 센트리(Sentry) 서브루틴을 최대 3개까지 해제합니다.\n2 [Credits]: 강도 +3.\n이번 턴에 성공적인 런을 수행했다면, 이번 턴 처음으로 Carmen을 설치할 때 비용이 2 [Credits] 감소(할인)합니다.',
     imageUrl: 'https://card-images.netrunnerdb.com/v2/medium/30015.jpg',
@@ -187,7 +187,7 @@ export const CARD_DATABASE: { [codeName: string]: Omit<Card, 'id' | 'rezzed' | '
     side: 'Runner',
     type: 'Program',
     subTypes: ['AI'],
-    cost: 2,
+    cost: 1,
     strength: 1,
     memoryCost: 2,
     text: '1 [Credit]: 서브루틴 1개를 해제합니다.\n1 [Credit]: 강도 +1.\n제한: 이번 런 동안 Mayfly를 사용했다면, 런이 끝날 때 Mayfly를 폐기(Trash)합니다.',
@@ -287,7 +287,7 @@ export const CARD_DATABASE: { [codeName: string]: Omit<Card, 'id' | 'rezzed' | '
     side: 'Corp',
     type: 'Upgrade',
     subTypes: [],
-    cost: 1, // Rez cost
+    cost: 2, // Rez cost
     trashCost: 3,
     isUnique: true,
     text: '매 턴 러너가 이 서버의 런을 계속(Continue)하기로 결정할 때, 2 [Clicks]를 소모하거나 5 [Credits]를 내야 합니다. 그렇지 않으면 런이 즉시 종료됩니다.',
@@ -333,7 +333,7 @@ export const CARD_DATABASE: { [codeName: string]: Omit<Card, 'id' | 'rezzed' | '
     side: 'Corp',
     type: 'ICE',
     subTypes: ['Barrier', 'Bioroid', 'AP'],
-    cost: 4,
+    cost: 6,
     strength: 6,
     imageUrl: 'https://card-images.netrunnerdb.com/v2/medium/30039.jpg',
     text: '러너는 자신의 1 [Click]을 소모하여 이 ICE의 서브루틴 1개를 임의로 해제할 수 있습니다.\n↳ Corp는 HQ나 버려진 카드 더미에서 ICE 1장을 선택해 이 ICE의 바로 안쪽에 설치 비용 없이 설치할 수 있습니다.\n↳ 런을 종료합니다.\n↳ 런을 종료합니다.',
@@ -363,7 +363,7 @@ export const CARD_DATABASE: { [codeName: string]: Omit<Card, 'id' | 'rezzed' | '
     side: 'Corp',
     type: 'ICE',
     subTypes: ['Sentry', 'AP'],
-    cost: 3,
+    cost: 4,
     strength: 3,
     imageUrl: 'https://card-images.netrunnerdb.com/v2/medium/30047.jpg',
     text: '↳ 2점의 넷 데미지를 입힙니다. 그 직후 러너는 잭아웃할 수 있습니다.\n↳ 2점의 넷 데미지를 입힙니다.',
@@ -393,8 +393,8 @@ export const CARD_DATABASE: { [codeName: string]: Omit<Card, 'id' | 'rezzed' | '
     side: 'Corp',
     type: 'ICE',
     subTypes: ['Sentry', 'AP'],
-    cost: 2,
-    strength: 3,
+    cost: 1,
+    strength: 1,
     imageUrl: 'https://card-images.netrunnerdb.com/v2/medium/30073.jpg',
     text: '↳ 1점의 넷 데미지를 입힙니다.\n↳ Corp는 1 [Credit]을 획득합니다.',
     subroutines: [
@@ -409,7 +409,7 @@ export const CARD_DATABASE: { [codeName: string]: Omit<Card, 'id' | 'rezzed' | '
     type: 'ICE',
     subTypes: ['Code Gate'],
     cost: 2,
-    strength: 3,
+    strength: 0,
     imageUrl: 'https://card-images.netrunnerdb.com/v2/medium/30074.jpg',
     text: '↳ 러너는 3 [Credits]를 잃습니다.\n↳ 러너가 6 [Credits] 이하라면 런을 종료합니다.',
     subroutines: [

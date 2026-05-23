@@ -86,6 +86,10 @@ export interface RunState {
   manegarmSkunkworksCostPaid?: boolean; // Manegarm Skunkworks 방해 요건 결제 여부
   needSkunkworksPay?: boolean; // Manegarm Skunkworks 비용 결제 대기 중 여부
   viaCardCode?: string; // 런을 유발한 카드 (예: 'red_team')
+  breakerStrengthBoost?: { [cardId: string]: number }; // 임시 강도 상승치
+  mayflyUsed?: boolean; // Mayfly 사용 여부
+  karunaJackoutWindow?: boolean; // Karunā 서브루틴 중간 잭아웃 윈도우 대기 플래그
+  resolvedSubroutineIds?: string[]; // 작동 완료된 서브루틴 ID 추적
 }
 
 export type GamePhase =
@@ -138,6 +142,8 @@ export interface GameState {
     brainDamage: number;
     flatlined: boolean;
     successfulRunThisTurn: boolean;
+    drawsThisTurn?: number;
+    pennyshaverTriggeredThisTurn?: boolean;
   };
   
   servers: {

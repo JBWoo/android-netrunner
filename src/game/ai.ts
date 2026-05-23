@@ -3,7 +3,8 @@ import {
   executeBasicAction, installCard, rezCard, advanceCard, 
   scoreAgenda, playCard, executeResourceClick, initiateRun, 
   resolveSubroutines, resolveAccessCard, jackOut, transitionRun, endRun,
-  discardCard, endRunnerTurn, paySkunkworksCost, resolveMulligan
+  discardCard, endRunnerTurn, paySkunkworksCost, resolveMulligan, endCorpTurn,
+  addLog
 } from './engine';
 
 // ----------------------------------------------------
@@ -28,6 +29,11 @@ export function corpPlayTurnStep(state: GameState): GameState {
       return discardCard(tempState, tempState.corp.hand[0].id);
     }
     return tempState;
+  }
+
+  const isCorpPlayerHuman = tempState.gameMode === 'corp-human';
+  if (tempState.corp.clicks === 0 && tempState.phase === 'corp-action' && !isCorpPlayerHuman) {
+    return endCorpTurn(tempState);
   }
   
   // 1. 이미 득점 가능한 아젠다가 있는지 탐색 후 즉시 득점
@@ -137,6 +143,36 @@ export function corpPlayTurnStep(state: GameState): GameState {
       return installCard(tempState, trapInHand.id, emptyRemote);
     } else {
       return installCard(tempState, trapInHand.id, 'New Remote');
+    }
+  }
+
+  // 자산 설치 우선 (Nico Campaign, Regolith Mining License)
+  const assetInHand = tempState.corp.hand.find(c => c.type === 'Asset' && c.codeName !== 'urtica_cipher');
+  if (assetInHand) {
+    let emptyRemote = '';
+    for (const serverKey of Object.keys(tempState.servers)) {
+      if (serverKey.startsWith('Remote') && tempState.servers[serverKey].root.length === 0) {
+        emptyRemote = serverKey;
+        break;
+      }
+    }
+    if (emptyRemote) {
+      return installCard(tempState, assetInHand.id, emptyRemote);
+    } else {
+      return installCard(tempState, assetInHand.id, 'New Remote');
+    }
+  }
+
+  // 업그레이드 설치 (Manegarm Skunkworks)
+  const upgradeInHand = tempState.corp.hand.find(c => c.type === 'Upgrade');
+  if (upgradeInHand) {
+    // 업그레이드가 설치되어 있지 않은 중앙서버나 원격지에 설치
+    const targetServers = ['HQ', 'RD', ...Object.keys(tempState.servers).filter(s => s.startsWith('Remote'))];
+    for (const target of targetServers) {
+      const hasUpgrade = tempState.servers[target]?.root.some(c => c.type === 'Upgrade');
+      if (!hasUpgrade) {
+        return installCard(tempState, upgradeInHand.id, target);
+      }
     }
   }
 
@@ -369,19 +405,28 @@ function runnerEncounterOrAccessStep(state: GameState): GameState {
 
       const totalRequired = boostCost + breakCredits;
 
-      if (tempState.runner.credits >= totalRequired && totalRequired > 0) {
-        // 크레딧 지불 후 서브루틴 전부 해제
-        tempState.runner.credits -= totalRequired;
-        if (tempState.run) {
-          tempState.run.subroutines = run.subroutines.map(sub => ({ ...sub, broken: true }));
+      if (totalRequired > 0) {
+        const totalAvailableCredits = tempState.runner.credits + (run.overclockCredits || 0);
+        if (totalAvailableCredits >= totalRequired) {
+          let remainingCost = totalRequired;
+          if (run.overclockCredits !== undefined && run.overclockCredits > 0) {
+            const usedFromTemp = Math.min(run.overclockCredits, remainingCost);
+            run.overclockCredits -= usedFromTemp;
+            remainingCost -= usedFromTemp;
+          }
+          if (remainingCost > 0) {
+            tempState.runner.credits -= remainingCost;
+          }
+
+          if (tempState.run) {
+            if (bestBreaker.codeName === 'mayfly') {
+              tempState.run.mayflyUsed = true;
+            }
+            tempState.run.subroutines = run.subroutines.map(sub => ({ ...sub, broken: true }));
+          }
+          tempState.logs = addLog(tempState.logs, `${bestBreaker.title}을 사용하여 ${ice.title}의 모든 서브루틴을 해제했습니다. (소모: ${totalRequired} [Credits])`, 'Runner');
+          return tempState;
         }
-        tempState.logs.push({
-          id: `log_ai_break_${Date.now()}`,
-          message: `${bestBreaker!.title}을 사용하여 ${ice.title}의 모든 서브루틴을 해제했습니다. (소모: ${totalRequired} [Credits])`,
-          timestamp: new Date().toLocaleTimeString(),
-          sender: 'Runner'
-        });
-        return tempState;
       }
     }
 

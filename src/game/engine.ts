@@ -7,7 +7,7 @@ export function cloneState(state: GameState): GameState {
 }
 
 // 로그 생성 도우미
-function addLog(logs: LogEntry[], message: string, sender: 'Corp' | 'Runner' | 'System'): LogEntry[] {
+export function addLog(logs: LogEntry[], message: string, sender: 'Corp' | 'Runner' | 'System'): LogEntry[] {
   const newLog: LogEntry = {
     id: `log_${Date.now()}_${Math.random()}`,
     message,
@@ -106,6 +106,7 @@ export function createInitialState(gameMode: GameMode, difficulty: Difficulty): 
       brainDamage: 0,
       flatlined: false,
       successfulRunThisTurn: false,
+      drawsThisTurn: 0,
     },
     servers: {
       HQ: { id: 'HQ', name: 'HQ', ice: [], root: [] },
@@ -132,35 +133,94 @@ export function createInitialState(gameMode: GameMode, difficulty: Difficulty): 
   return state;
 }
 
-// 턴 및 페이즈 체크 도우미
+// 턴 및 페이즈 체크 도우미 (자동 턴 교대를 하지 않고 수동 종료 처리)
 export function checkTurnEnd(state: GameState): GameState {
-  let tempState = cloneState(state);
-  if (tempState.activePlayer === 'Corp' && tempState.corp.clicks === 0) {
-    if (tempState.corp.hand.length > tempState.corp.maximumHandSize) {
-      tempState.phase = 'corp-discard';
-      tempState.logs = addLog(tempState.logs, `Corp의 손패가 제한(${tempState.corp.maximumHandSize}장)을 초과했습니다. 버릴 카드를 선택하십시오.`, 'System');
-    } else {
-      // Runner 턴 시작
-      tempState.activePlayer = 'Runner';
-      tempState.runner.clicks = 4;
-      tempState.runner.successfulRunThisTurn = false;
-      tempState.phase = 'runner-action';
-      tempState.logs = addLog(tempState.logs, `Turn ${tempState.turn}: Runner의 차례입니다.`, 'System');
+  return state;
+}
 
-      // Smartware Distributor 시작 시 작동
-      tempState.runner.rig = tempState.runner.rig.map(c => {
-        if (c.codeName === 'smartware_distributor' && c.hostedCounters > 0) {
-          tempState.runner.credits += 1;
-          tempState.logs = addLog(tempState.logs, `Smartware Distributor의 효과로 1 [Credit]을 획득합니다.`, 'Runner');
-          return { ...c, hostedCounters: c.hostedCounters - 1 };
+// Corp 차례 개시 공통 처리
+export function startCorpTurn(state: GameState): GameState {
+  let tempState = cloneState(state);
+  tempState.runner.successfulRunThisTurn = false;
+  tempState.runner.pennyshaverTriggeredThisTurn = false;
+  tempState.activePlayer = 'Corp';
+  tempState.corp.clicks = 3;
+  tempState.turn += 1;
+  tempState.phase = 'corp-draw';
+  tempState.logs = addLog(tempState.logs, `Turn ${tempState.turn}: Corporation의 차례입니다.`, 'System');
+
+  // Nico Campaign 자동 레즈 보장 (턴 시작 시점)
+  tempState.servers = Object.keys(tempState.servers).reduce((acc, serverKey) => {
+    const server = tempState.servers[serverKey];
+    const newRoot = server.root.map(c => {
+      if (c.codeName === 'nico_campaign' && !c.rezzed && tempState.corp.credits >= c.cost) {
+        c.rezzed = true;
+        tempState.corp.credits -= c.cost;
+        tempState.logs = addLog(tempState.logs, `Corp가 턴 시작 단계에서 Nico Campaign을 자동으로 레즈했습니다. (비용: ${c.cost} [Credits])`, 'Corp');
+      }
+      return c;
+    });
+    acc[serverKey] = { ...server, root: newRoot };
+    return acc;
+  }, {} as { [key: string]: typeof tempState.servers[string] });
+
+  // Nico Campaign 자금 수령 작동
+  tempState.servers = Object.keys(tempState.servers).reduce((acc, serverKey) => {
+    const server = tempState.servers[serverKey];
+    const newRoot = server.root.map(c => {
+      if (c.codeName === 'nico_campaign' && c.rezzed) {
+        const gain = Math.min(3, c.hostedCredits);
+        tempState.corp.credits += gain;
+        c.hostedCredits -= gain;
+        tempState.logs = addLog(tempState.logs, `Nico Campaign에서 ${gain} [Credits]를 수령했습니다. (남은 크레딧: ${c.hostedCredits})`, 'Corp');
+        
+        if (c.hostedCredits === 0) {
+          tempState.corp.discard.push(c);
+          return null; // 아카이브로 버림
         }
-        return c;
-      });
-    }
-  } else if (tempState.activePlayer === 'Runner' && tempState.runner.clicks === 0) {
-    // 러너 클릭이 0일 때 자동으로 기업 턴으로 넘어가던 기존 로직 제거
-    // 플레이어가 수동으로 [차례 종료] 버튼을 클릭할 때까지 대기
+      }
+      return c;
+    }).filter(c => c !== null) as Card[];
+    
+    acc[serverKey] = { ...server, root: newRoot };
+    return acc;
+  }, {} as { [key: string]: typeof tempState.servers[string] });
+
+  // Corp 의무 드로우
+  const mandatoryDrawCard = tempState.corp.deck.pop();
+  if (mandatoryDrawCard) {
+    tempState.corp.hand.push(mandatoryDrawCard);
+    tempState.logs = addLog(tempState.logs, 'Corp가 의무 드로우로 카드 1장을 뽑았습니다.', 'Corp');
+    tempState.phase = 'corp-action';
+  } else {
+    tempState.winner = 'Runner';
+    tempState.phase = 'game-over';
+    tempState.logs = addLog(tempState.logs, 'Corp의 R&D에 카드가 없습니다. Runner가 승리합니다!', 'System');
   }
+
+  return tempState;
+}
+
+// Runner 차례 개시 공통 처리
+export function startRunnerTurn(state: GameState): GameState {
+  let tempState = cloneState(state);
+  tempState.activePlayer = 'Runner';
+  tempState.runner.clicks = 4;
+  tempState.phase = 'runner-action';
+  tempState.runner.drawsThisTurn = 0;
+  tempState.runner.pennyshaverTriggeredThisTurn = false;
+  tempState.logs = addLog(tempState.logs, `Turn ${tempState.turn}: Runner의 차례입니다.`, 'System');
+
+  // Smartware Distributor 시작 시 작동
+  tempState.runner.rig = tempState.runner.rig.map(c => {
+    if (c.codeName === 'smartware_distributor' && c.hostedCounters > 0) {
+      tempState.runner.credits += 1;
+      tempState.logs = addLog(tempState.logs, `Smartware Distributor의 효과로 1 [Credit]을 획득합니다.`, 'Runner');
+      return { ...c, hostedCounters: c.hostedCounters - 1 };
+    }
+    return c;
+  });
+
   return tempState;
 }
 
@@ -169,7 +229,6 @@ export function endRunnerTurn(state: GameState): GameState {
   let tempState = cloneState(state);
   if (tempState.activePlayer !== 'Runner') return state;
 
-  // 클릭 강제 소모 (남은 상태에서 눌렀을 수도 있으므로)
   tempState.runner.clicks = 0;
 
   // 러너 손패 초과 검사
@@ -177,51 +236,28 @@ export function endRunnerTurn(state: GameState): GameState {
     tempState.phase = 'runner-discard';
     tempState.logs = addLog(tempState.logs, `Runner의 손패가 제한(${tempState.runner.maximumHandSize}장)을 초과했습니다. 버릴 카드를 선택하십시오.`, 'System');
   } else {
-    // Corporation 턴 시작 처리
-    tempState.runner.successfulRunThisTurn = false;
-    tempState.activePlayer = 'Corp';
-    tempState.corp.clicks = 3;
-    tempState.turn += 1;
-    tempState.phase = 'corp-draw';
-    tempState.logs = addLog(tempState.logs, `Turn ${tempState.turn}: Corporation의 차례입니다.`, 'System');
-
-    // Nico Campaign 시작 시 작동
-    tempState.servers = Object.keys(tempState.servers).reduce((acc, serverKey) => {
-      const server = tempState.servers[serverKey];
-      const newRoot = server.root.map(c => {
-        if (c.codeName === 'nico_campaign' && c.rezzed) {
-          const gain = Math.min(3, c.hostedCredits);
-          tempState.corp.credits += gain;
-          c.hostedCredits -= gain;
-          tempState.logs = addLog(tempState.logs, `Nico Campaign에서 ${gain} [Credits]를 수령했습니다. (남은 크레딧: ${c.hostedCredits})`, 'Corp');
-          
-          if (c.hostedCredits === 0) {
-            tempState.corp.discard.push(c);
-            return null; // 아카이브로 버림
-          }
-        }
-        return c;
-      }).filter(c => c !== null) as Card[];
-      
-      acc[serverKey] = { ...server, root: newRoot };
-      return acc;
-    }, {} as { [key: string]: typeof tempState.servers[string] });
-
-    // Corp 의무 드로우
-    const mandatoryDrawCard = tempState.corp.deck.pop();
-    if (mandatoryDrawCard) {
-      tempState.corp.hand.push(mandatoryDrawCard);
-      tempState.logs = addLog(tempState.logs, 'Corp가 의무 드로우로 카드 1장을 뽑았습니다.', 'Corp');
-      tempState.phase = 'corp-action';
-    } else {
-      tempState.winner = 'Runner';
-      tempState.phase = 'game-over';
-      tempState.logs = addLog(tempState.logs, 'Corp의 R&D에 카드가 없습니다. Runner가 승리합니다!', 'System');
-    }
+    tempState = startCorpTurn(tempState);
   }
-
   return tempState;
 }
+
+// Corp 차례 수동 종료
+export function endCorpTurn(state: GameState): GameState {
+  let tempState = cloneState(state);
+  if (tempState.activePlayer !== 'Corp') return state;
+
+  tempState.corp.clicks = 0;
+
+  // 기업 손패 초과 검사
+  if (tempState.corp.hand.length > tempState.corp.maximumHandSize) {
+    tempState.phase = 'corp-discard';
+    tempState.logs = addLog(tempState.logs, `Corp의 손패가 제한(${tempState.corp.maximumHandSize}장)을 초과했습니다. 버릴 카드를 선택하십시오.`, 'System');
+  } else {
+    tempState = startRunnerTurn(tempState);
+  }
+  return tempState;
+}
+
 
 // 득점 계산 및 게임 오버 판정
 export function checkVictory(state: GameState): GameState {
@@ -278,13 +314,16 @@ export function executeBasicAction(state: GameState, actionType: 'gain-credit' |
       tempState.runner.credits += 1;
       tempState.logs = addLog(tempState.logs, 'Runner가 [Click]을 소모하여 1 [Credit]을 획득했습니다.', 'Runner');
     } else {
-      const extraDraw = tempState.runner.rig.some(c => c.codeName === 'verbal_plasticity') && 
-        !tempState.logs.some(l => l.sender === 'Runner' && l.message.includes('드로우') && !l.message.includes('시작 시'));
+      if (tempState.runner.drawsThisTurn === undefined) {
+        tempState.runner.drawsThisTurn = 0;
+      }
+      const extraDraw = tempState.runner.rig.some(c => c.codeName === 'verbal_plasticity') && tempState.runner.drawsThisTurn === 0;
 
       const card = tempState.runner.deck.pop();
       if (card) {
         tempState.runner.hand.push(card);
         tempState.logs = addLog(tempState.logs, 'Runner가 [Click]을 소모하여 카드 1장을 드로우했습니다.', 'Runner');
+        tempState.runner.drawsThisTurn += 1;
         
         if (extraDraw) {
           const secondCard = tempState.runner.deck.pop();
@@ -767,10 +806,7 @@ export function discardCard(state: GameState, cardId: string): GameState {
       
       // 손패가 제한 이하로 떨어지면 턴 종료 후 Runner 차례 개시
       if (tempState.corp.hand.length <= tempState.corp.maximumHandSize) {
-        tempState.activePlayer = 'Runner';
-        tempState.runner.clicks = 4;
-        tempState.phase = 'runner-action';
-        tempState.logs = addLog(tempState.logs, `Turn ${tempState.turn}: Runner의 차례입니다.`, 'System');
+        tempState = startRunnerTurn(tempState);
       }
     }
   } else if (tempState.phase === 'runner-discard') {
@@ -781,23 +817,7 @@ export function discardCard(state: GameState, cardId: string): GameState {
       tempState.logs = addLog(tempState.logs, `Runner가 손패 초과로 카드(${trashed.title})를 Heap으로 버렸습니다.`, 'Runner');
       
       if (tempState.runner.hand.length <= tempState.runner.maximumHandSize) {
-        tempState.activePlayer = 'Corp';
-        tempState.corp.clicks = 3;
-        tempState.turn += 1;
-        tempState.phase = 'corp-draw';
-        tempState.logs = addLog(tempState.logs, `Turn ${tempState.turn}: Corporation의 차례입니다.`, 'System');
-        
-        // 의무 드로우
-        const card = tempState.corp.deck.pop();
-        if (card) {
-          tempState.corp.hand.push(card);
-          tempState.logs = addLog(tempState.logs, 'Corp가 의무 드로우로 카드 1장을 뽑았습니다.', 'Corp');
-          tempState.phase = 'corp-action';
-        } else {
-          tempState.winner = 'Runner';
-          tempState.phase = 'game-over';
-          tempState.logs = addLog(tempState.logs, 'Corp의 R&D에 카드가 없습니다. Runner가 승리합니다!', 'System');
-        }
+        tempState = startCorpTurn(tempState);
       }
     }
   }
@@ -995,7 +1015,7 @@ export function transitionRun(state: GameState): GameState {
 }
 
 // ICE 서브루틴 임시 해제
-export function breakSubroutine(state: GameState, subId: string): GameState {
+export function breakSubroutine(state: GameState, subId: string, breakerId?: string): GameState {
   let tempState = cloneState(state);
   if (!tempState.run || tempState.run.phase !== 'encounter') return state;
 
@@ -1005,6 +1025,13 @@ export function breakSubroutine(state: GameState, subId: string): GameState {
     }
     return sub;
   });
+
+  if (breakerId) {
+    const breaker = tempState.runner.rig.find(c => c.id === breakerId);
+    if (breaker && breaker.codeName === 'mayfly') {
+      tempState.run.mayflyUsed = true;
+    }
+  }
 
   return tempState;
 }
@@ -1027,7 +1054,7 @@ export function breakSubWithClick(state: GameState, subId: string): GameState {
   return checkTurnEnd(tempState);
 }
 
-// 조우 종료 후 남은 서브루틴 발동 처리
+// 조우 종료 후 남은 서브루틴 발동 처리 (순차적 해결 구조로 변경)
 export function resolveSubroutines(state: GameState): GameState {
   let tempState = cloneState(state);
   if (!tempState.run || tempState.run.phase !== 'encounter') return state;
@@ -1036,74 +1063,162 @@ export function resolveSubroutines(state: GameState): GameState {
   const currentIce = run.currentIce;
   if (!currentIce) return state;
 
-  tempState.logs = addLog(tempState.logs, `${currentIce.title}의 미해제 서브루틴들이 작동합니다.`, 'System');
-
-  let runEndedBySub = false;
-
-  for (const sub of run.subroutines) {
-    if (!sub.broken) {
-      tempState.logs = addLog(tempState.logs, `[작동] ↳ ${sub.text}`, 'Corp');
-      
-      if (sub.effectType === 'end-run') {
-        runEndedBySub = true;
-      } else if (sub.effectType === 'damage') {
-        // 넷 데미지
-        const damageAmt = currentIce.codeName === 'karuna' ? 2 : 1;
-        tempState = applyNetDamage(tempState, damageAmt, currentIce.title);
-        
-        // 플랫라인 체크
-        if (tempState.winner) return tempState;
-
-        // Karuna 잭아웃 선택 분기 처리 (AI 혹은 단순 진행용)
-        if (currentIce.codeName === 'karuna' && sub.id === 'karuna_sub_1') {
-          // 간소화: 러너가 잭아웃하지 않음 (만약 잭아웃하고 싶다면 아래 주석 활용)
-          tempState.logs = addLog(tempState.logs, `Runner가 Karuna의 첫 서브루틴 데미지를 받고 런을 계속 진행합니다.`, 'Runner');
-        }
-      } else if (sub.effectType === 'lose-credits') {
-        // Whitespace의 3원 소실
-        tempState.runner.credits = Math.max(0, tempState.runner.credits - 3);
-        tempState.logs = addLog(tempState.logs, `Runner가 3 [Credits]를 소실했습니다.`, 'System');
-      } else if (sub.effectType === 'gain-credits-corp') {
-        // Tithe의 1원 획득
-        tempState.corp.credits += 1;
-        tempState.logs = addLog(tempState.logs, `Corp가 1 [Credit]을 획득했습니다.`, 'System');
-      } else if (sub.effectType === 'install') {
-        // Bran 1.0의 ICE 무상 안쪽 설치
-        const hIndex = tempState.corp.hand.findIndex(c => c.type === 'ICE');
-        if (hIndex !== -1) {
-          const newIce = tempState.corp.hand.splice(hIndex, 1)[0];
-          // Bran 바로 안쪽(index 0에 가까운 쪽)에 삽입
-          const server = tempState.servers[run.target];
-          server.ice.unshift(newIce);
-          tempState.logs = addLog(tempState.logs, `Bran 1.0 효과로 ${newIce.title}가 무상으로 안쪽에 추가 설치되었습니다.`, 'Corp');
-        }
-      }
-    }
+  // resolvedSubroutineIds 추적 배열 초기화
+  if (!run.resolvedSubroutineIds) {
+    run.resolvedSubroutineIds = [];
   }
 
+  // 아직 안 깨졌고, 아직 작동 완료되지 않은 첫 번째 서브루틴 찾기
+  const nextSub = run.subroutines.find(s => !s.broken && !run.resolvedSubroutineIds!.includes(s.id));
+
+  if (nextSub) {
+    // 서브루틴 작동 기록
+    run.resolvedSubroutineIds.push(nextSub.id);
+    tempState.logs = addLog(tempState.logs, `[작동] ↳ ${nextSub.text}`, 'Corp');
+
+    let runEndedBySub = false;
+
+    if (nextSub.effectType === 'end-run') {
+      runEndedBySub = true;
+    } else if (nextSub.effectType === 'damage') {
+      const damageAmt = currentIce.codeName === 'karuna' ? 2 : 1;
+      tempState = applyNetDamage(tempState, damageAmt, currentIce.title);
+      
+      if (tempState.winner) return tempState;
+
+      // Karuna 첫 서브루틴 데미지 직후 잭아웃 기회 제공
+      if (currentIce.codeName === 'karuna' && nextSub.id === 'karuna_sub_1') {
+        if (tempState.gameMode === 'runner-human') {
+          // 러너 플레이어에게 선택을 요구하기 위해 중단
+          if (tempState.run) {
+            tempState.run.karunaJackoutWindow = true;
+          }
+          tempState.logs = addLog(tempState.logs, `Karuna의 첫 데미지가 작렬했습니다! 런을 계속할지 잭아웃할지 결정하십시오.`, 'System');
+          return tempState;
+        } else {
+          // AI는 계속 진행
+          tempState.logs = addLog(tempState.logs, `Runner AI가 Karuna의 첫 서브루틴 데미지를 받고 런을 계속 진행합니다.`, 'Runner');
+        }
+      }
+    } else if (nextSub.effectType === 'lose-credits') {
+      tempState.runner.credits = Math.max(0, tempState.runner.credits - 3);
+      tempState.logs = addLog(tempState.logs, `Runner가 3 [Credits]를 소실했습니다.`, 'System');
+    } else if (nextSub.effectType === 'gain-credits-corp') {
+      tempState.corp.credits += 1;
+      tempState.logs = addLog(tempState.logs, `Corp가 1 [Credit]을 획득했습니다.`, 'System');
+    } else if (nextSub.effectType === 'install') {
+      const hIndex = tempState.corp.hand.findIndex(c => c.type === 'ICE');
+      if (hIndex !== -1) {
+        const newIce = tempState.corp.hand.splice(hIndex, 1)[0];
+        const server = tempState.servers[run.target];
+        server.ice.unshift(newIce);
+        tempState.logs = addLog(tempState.logs, `Bran 1.0 효과로 ${newIce.title}가 무상으로 안쪽에 추가 설치되었습니다.`, 'Corp');
+      }
+    }
+
+    if (runEndedBySub && tempState.run) {
+      tempState.run.phase = 'end';
+      tempState.run.success = false;
+      tempState.logs = addLog(tempState.logs, `런이 실패로 종료되었습니다.`, 'System');
+      return endRun(tempState);
+    }
+
+    // 다음 서브루틴을 계속해서 격발 처리 (재귀 호출)
+    return resolveSubroutines(tempState);
+  }
+
+  // 모든 서브루틴 처리가 끝난 경우
   // Whitespace 6원 이하 강제 종결 처리
   if (currentIce.codeName === 'whitespace' && tempState.runner.credits <= 6) {
     const secondSubBroken = run.subroutines.find(s => s.id === 'whitespace_sub_2')?.broken;
     if (!secondSubBroken) {
-      runEndedBySub = true;
+      tempState.run.phase = 'end';
+      tempState.run.success = false;
       tempState.logs = addLog(tempState.logs, `Runner가 6 [Credits] 이하이므로 Whitespace 효과로 런이 강제 종결됩니다.`, 'System');
+      return endRun(tempState);
     }
   }
 
-  if (runEndedBySub && tempState.run) {
-    tempState.run.phase = 'end';
-    tempState.run.success = false;
-    tempState.logs = addLog(tempState.logs, `런이 실패로 종료되었습니다.`, 'System');
-    return endRun(tempState);
-  }
+  // ICE 조우 종료 시점에 Resolved IDs 리스트 초기화
+  tempState.run.resolvedSubroutineIds = [];
 
   return passIce(tempState);
+}
+
+// Karuna 서브루틴 해결 후 진행 의사 처리 함수
+export function continueAfterKarunaSub(state: GameState, jackout: boolean): GameState {
+  let tempState = cloneState(state);
+  if (!tempState.run || !tempState.run.karunaJackoutWindow) return state;
+
+  tempState.run.karunaJackoutWindow = false;
+
+  if (jackout) {
+    tempState.logs = addLog(tempState.logs, `Runner가 Karuna 조우 도중 잭아웃(Jack Out)을 선언했습니다.`, 'Runner');
+    return jackOut(tempState);
+  } else {
+    tempState.logs = addLog(tempState.logs, `Runner가 Karuna의 공격을 이겨내고 런을 계속하기로 결정했습니다.`, 'Runner');
+    // 다음 서브루틴을 계속 격발
+    return resolveSubroutines(tempState);
+  }
+}
+
+
+// 아이스브레이커 임시 힘 상승 액션
+export function boostBreakerStrength(state: GameState, cardId: string): GameState {
+  let tempState = cloneState(state);
+  if (!tempState.run || tempState.run.phase !== 'encounter') return state;
+
+  const run = tempState.run;
+  const breaker = tempState.runner.rig.find(c => c.id === cardId);
+  if (!breaker || breaker.type !== 'Program') return state;
+
+  // 브레이커별 힘 상승 스펙
+  let boostAmt = 1;
+  let boostCost = 1;
+  if (breaker.codeName === 'carmen') {
+    boostAmt = 3;
+    boostCost = 2;
+  }
+
+  const totalAvailableCredits = tempState.runner.credits + (run.overclockCredits || 0);
+  if (totalAvailableCredits < boostCost) {
+    tempState.logs = addLog(tempState.logs, `크레딧이 부족하여 브레이커 강도를 올릴 수 없습니다.`, 'System');
+    return state;
+  }
+
+  // 비용 지불 (Overclock 우선)
+  let remainingCost = boostCost;
+  if (run.overclockCredits !== undefined && run.overclockCredits > 0) {
+    const usedFromTemp = Math.min(run.overclockCredits, remainingCost);
+    run.overclockCredits -= usedFromTemp;
+    remainingCost -= usedFromTemp;
+  }
+  if (remainingCost > 0) {
+    tempState.runner.credits -= remainingCost;
+  }
+
+  // 강도 상승량 누적 기록
+  if (!run.breakerStrengthBoost) {
+    run.breakerStrengthBoost = {};
+  }
+  run.breakerStrengthBoost[cardId] = (run.breakerStrengthBoost[cardId] || 0) + boostAmt;
+
+  if (breaker.codeName === 'mayfly') {
+    run.mayflyUsed = true;
+  }
+
+  tempState.logs = addLog(tempState.logs, `${breaker.title}의 강도를 +${boostAmt} 올렸습니다. (현재 추가 강도: +${run.breakerStrengthBoost[cardId]})`, 'Runner');
+
+  return tempState;
 }
 
 // ICE 무사 통과 처리
 export function passIce(state: GameState): GameState {
   let tempState = cloneState(state);
   if (!tempState.run) return state;
+
+  // ICE 조우 통과 시 임시 힘 상승 리셋
+  tempState.run.breakerStrengthBoost = {};
 
   const run = tempState.run;
   const server = tempState.servers[run.target];
@@ -1149,6 +1264,7 @@ export function jackOut(state: GameState): GameState {
   let tempState = cloneState(state);
   if (!tempState.run) return state;
 
+  tempState.run.breakerStrengthBoost = {};
   tempState.run.phase = 'end';
   tempState.run.jackedOut = true;
   tempState.run.success = false;
@@ -1169,12 +1285,12 @@ export function resolveAccessCard(state: GameState, trash = false): GameState {
   // 액세스 로그 추가
   tempState.logs = addLog(tempState.logs, `[액세스] Runner가 ${run.target} 서버에서 '${card.title}' (${card.type}) 카드를 액세스했습니다.`, 'System');
 
-  // 1. 함정 작동 여부 확인 (액세스 시점 즉각 작동)
+  // 1. 함정 작동 여부 확인 (액세스 시점 즉각 작동, 어드밴스가 없어도 작동하며 기본 2점 피해 적용)
   let trapTriggered = false;
-  if (card.codeName === 'urtica_cipher' && card.advancedCounters > 0) {
+  if (card.codeName === 'urtica_cipher') {
     if (tempState.corp.credits >= 1) {
       tempState.corp.credits -= 1;
-      const damage = card.advancedCounters * 2;
+      const damage = Math.max(2, card.advancedCounters * 2);
       tempState.logs = addLog(tempState.logs, `Corp가 1 [Credit]을 지불하여 Urtica Cipher 함정을 작동시킵니다! (데미지: ${damage}점)`, 'Corp');
       tempState = applyNetDamage(tempState, damage, 'Urtica Cipher');
       trapTriggered = true;
@@ -1278,13 +1394,22 @@ export function endRun(state: GameState): GameState {
   const run = tempState.run;
   const success = run.success;
 
-  // Pennyshaver 콘솔 금융 보상 작동
+  // Pennyshaver 콘솔 금융 보상 작동 (성공 시 Pennyshaver 위에 1 크레딧 카운터 충전)
   if (success && ['HQ', 'RD'].includes(run.target)) {
-    const hasPennyshaver = tempState.runner.rig.find(c => c.codeName === 'pennyshaver');
-    if (hasPennyshaver) {
-      const accessCount = run.accessedCards.length;
-      tempState.runner.credits += accessCount;
-      tempState.logs = addLog(tempState.logs, `Pennyshaver 보상: 이번 런에서 액세스한 ${accessCount}장 대비 ${accessCount} [Credits]를 획득합니다.`, 'Runner');
+    let pennyshaverPlaced = false;
+    tempState.runner.rig = tempState.runner.rig.map(c => {
+      if (c.codeName === 'pennyshaver') {
+        if (!tempState.runner.pennyshaverTriggeredThisTurn) {
+          const nextCard = { ...c, hostedCredits: (c.hostedCredits || 0) + 1 };
+          pennyshaverPlaced = true;
+          return nextCard;
+        }
+      }
+      return c;
+    });
+    if (pennyshaverPlaced) {
+      tempState.runner.pennyshaverTriggeredThisTurn = true;
+      tempState.logs = addLog(tempState.logs, `Pennyshaver 효과: HQ/R&D 첫 런 성공으로 Pennyshaver에 1 [Credit]이 충전되었습니다.`, 'System');
     }
   }
 
@@ -1306,15 +1431,22 @@ export function endRun(state: GameState): GameState {
     tempState.logs = addLog(tempState.logs, `Overclock 임시 크레딧 ${run.overclockCredits}🪙이 런 완료 후 소멸되었습니다.`, 'System');
   }
 
-  // Mayfly 런 종료 시 폐기 처리
-  tempState.runner.rig = tempState.runner.rig.filter(c => {
-    if (c.codeName === 'mayfly') {
-      tempState.runner.discard.push(c);
-      tempState.logs = addLog(tempState.logs, `Mayfly를 사용했으므로 런이 끝나고 폐기합니다.`, 'System');
-      return false;
-    }
-    return true;
-  });
+  // Mayfly 런 종료 시 폐기 처리 (이번 런에서 사용되었을 경우에만)
+  if (run.mayflyUsed) {
+    tempState.runner.rig = tempState.runner.rig.filter(c => {
+      if (c.codeName === 'mayfly') {
+        tempState.runner.discard.push(c);
+        tempState.logs = addLog(tempState.logs, `이번 런 동안 Mayfly가 사용되었으므로 런이 끝나고 폐기합니다.`, 'System');
+        return false;
+      }
+      return true;
+    });
+  }
+
+  // 런 종료 시 임시 강도 상승치 해제
+  if (tempState.run) {
+    tempState.run.breakerStrengthBoost = {};
+  }
 
   tempState.run = null;
   tempState.logs = addLog(tempState.logs, `런(Run) 과정이 완전히 정리되었습니다.`, 'System');
@@ -1459,6 +1591,29 @@ export function resolveMulligan(state: GameState, side: 'Corp' | 'Runner', selec
       tempState.phase = 'game-over';
       tempState.logs = addLog(tempState.logs, 'Corp의 R&D에 카드가 없습니다. Runner가 승리합니다!', 'System');
     }
+  }
+
+  return tempState;
+}
+
+// Pennyshaver에 호스팅된 크레딧 가져오기
+export function takePennyshaverCredits(state: GameState, cardId: string): GameState {
+  let tempState = cloneState(state);
+  if (tempState.activePlayer !== 'Runner' || tempState.runner.clicks <= 0) return state;
+
+  let creditsTaken = 0;
+  tempState.runner.rig = tempState.runner.rig.map(c => {
+    if (c.id === cardId && c.codeName === 'pennyshaver') {
+      creditsTaken = c.hostedCredits || 0;
+      return { ...c, hostedCredits: 0 };
+    }
+    return c;
+  });
+
+  if (creditsTaken > 0) {
+    tempState.runner.clicks -= 1;
+    tempState.runner.credits += creditsTaken;
+    tempState.logs = addLog(tempState.logs, `Pennyshaver에서 호스팅된 ${creditsTaken} [Credits]를 수령했습니다. (1 [Click] 소모)`, 'Runner');
   }
 
   return tempState;

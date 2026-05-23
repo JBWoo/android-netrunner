@@ -94,6 +94,18 @@ h1, h2, h3, .font-orbitron {
   border-radius: 8px;
 }
 
+/* 멀리건 단계용 특대형 카드 크기 (2배 크기) */
+.netrunner-card.mulligan-card {
+  width: 240px;
+  height: 340px;
+  border-radius: 12px;
+}
+
+.netrunner-card.mulligan-card:hover {
+  transform: translateY(-16px) scale(1.05);
+  z-index: 50;
+}
+
 .netrunner-card:hover {
   transform: translateY(-8px) scale(1.05);
   z-index: 10;
