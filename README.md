@@ -1,73 +1,72 @@
-# React + TypeScript + Vite
+# 🌐 Android Netrunner: System Gateway AI Duel
 
-This template provides a minimal setup to get React working in Vite with HMR and some ESLint rules.
+> **"오프라인에서 함께 넷러너를 즐길 파트너를 찾기 어려우셨나요? 이제 웹 브라우저에서 언제든지 AI와 두뇌 싸움을 펼쳐보세요!"**
 
-Currently, two official plugins are available:
+본 프로젝트는 비대칭 카드 게임의 명작, **안드로이드: 넷러너(Android: Netrunner)**의 입문자용 세트인 **시스템 게이트웨이(System Gateway)** 스타터 덱을 기반으로 한 1인용 AI 대전 웹 어플리케이션입니다.
 
-- [@vitejs/plugin-react](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react) uses [Oxc](https://oxc.rs)
-- [@vitejs/plugin-react-swc](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react-swc) uses [SWC](https://swc.rs/)
+---
 
-## React Compiler
+## 💡 개발 취지 (Why I Built This)
 
-The React Compiler is not enabled on this template because of its impact on dev & build performances. To add it, see [this documentation](https://react.dev/learn/react-compiler/installation).
+넷러너는 전 세계적으로 열광적인 팬덤을 거느린 최고의 LCG(Living Card Game)이지만, 오프라인에서 매칭 상대를 구하기 어렵고 룰의 진입장벽이 높아 혼자서는 플레이를 쉽게 즐기기 어렵다는 아쉬움이 늘 있었습니다. 
 
-## Expanding the ESLint configuration
+**"혼자서도 언제나 넷러너를 편하게 연습하고 즐길 수 없을까?"** 하는 고민 끝에, 넷러너 입문의 정석인 신규 **System Gateway** 스타터 팩의 규칙과 카드를 완벽하게 이식한 1인용 AI 대전판을 직접 개발하게 되었습니다. 
 
-If you are developing a production application, we recommend updating the configuration to enable type-aware lint rules:
+이 프로젝트가 저 스스로뿐만 아니라 넷러너를 사랑하고 즐기는 많은 러너와 코퍼레이션 플레이어들이 모여 함께 놀 수 있는 놀이터가 되기를 바랍니다. 나아가, 더 다양한 커스텀 덱과 카드를 구현하고 플레이할 수 있도록 오픈소스 기여와 피드백을 언제든지 환영합니다. 함께 더 넓은 넷 영역으로 나아가길 기대합니다!
 
-```js
-export default defineConfig([
-  globalIgnores(['dist']),
-  {
-    files: ['**/*.{ts,tsx}'],
-    extends: [
-      // Other configs...
+---
 
-      // Remove tseslint.configs.recommended and replace with this
-      tseslint.configs.recommendedTypeChecked,
-      // Alternatively, use this for stricter rules
-      tseslint.configs.strictTypeChecked,
-      // Optionally, add this for stylistic rules
-      tseslint.configs.stylisticTypeChecked,
+## ⚡ 주요 핵심 기능 (Key Features)
 
-      // Other configs...
-    ],
-    languageOptions: {
-      parserOptions: {
-        project: ['./tsconfig.node.json', './tsconfig.app.json'],
-        tsconfigRootDir: import.meta.dirname,
-      },
-      // other options...
-    },
-  },
-])
+* **🤖 지능형 AI 휴리스틱 대전**: 기업(Corp)과 러너(Runner)에 특화된 AI가 탑재되어, 실제 사람과 플레이하듯 ICE 레즈(Rez), 아젠다 발전(Advance) 및 런(Run) 해킹 경로 침투를 수행합니다.
+* **🃏 초반 개별 멀리건(Mulligan) 시스템**: 시작 카드 5장 중 바꾸고 싶은 카드를 선택해 교환하는 개별 카드 셔플 드로우를 지원합니다 (양쪽 모두 1회).
+* **🎨 프리미엄 사이버펑크 UI/UX**:
+  * NetrunnerDB 고해상도 카드 일러스트 제공.
+  * 레즈(Rez)된 ICE의 시계방향 90도 회전 레이아웃.
+  * 카드 뒷면 상태에서도 발전 카운터(ADV) 오버레이 펄스 애니메이션.
+  * 카드 클릭 시 화면 정중앙에 고해상도로 팝업되는 2단계 액션 모달 제어.
+* **⚖️ 엄격한 룰 엔진 무결성**: 넷러너 공식 스타터 룰(크레딧 누진 설치 비용, 런 단계 진행 프로토콜, 넷 데미지 플랫라인 판정, 손패 초과 버리기 등)을 100% 무결하게 이식했습니다.
+* **🧪 자동화 QA 시나리오 테스터**: 15가지 카드 특수 능력 검증 시나리오 및 100회 단위 AI 교착 상태 자동 사냥 시뮬레이터를 완비했습니다.
+
+---
+
+## 🚀 시작 가이드 (Quick Start)
+
+### 1) 로컬 개발 서버 실행
+```bash
+# 의존성 설치
+npm install
+
+# 개발 서버 실행 (Vite)
+npm run dev
 ```
 
-You can also install [eslint-plugin-react-x](https://github.com/Rel1cx/eslint-react/tree/main/packages/plugins/eslint-plugin-react-x) and [eslint-plugin-react-dom](https://github.com/Rel1cx/eslint-react/tree/main/packages/plugins/eslint-plugin-react-dom) for React-specific lint rules:
-
-```js
-// eslint.config.js
-import reactX from 'eslint-plugin-react-x'
-import reactDom from 'eslint-plugin-react-dom'
-
-export default defineConfig([
-  globalIgnores(['dist']),
-  {
-    files: ['**/*.{ts,tsx}'],
-    extends: [
-      // Other configs...
-      // Enable lint rules for React
-      reactX.configs['recommended-typescript'],
-      // Enable lint rules for React DOM
-      reactDom.configs.recommended,
-    ],
-    languageOptions: {
-      parserOptions: {
-        project: ['./tsconfig.node.json', './tsconfig.app.json'],
-        tsconfigRootDir: import.meta.dirname,
-      },
-      // other options...
-    },
-  },
-])
+### 2) 빌드 및 프로덕션 배포
+```bash
+npm run build
 ```
+
+### 3) 룰 검증 및 시뮬레이션 테스트
+```bash
+# 15개 핵심 카드 메커니즘 QA 테스트
+npm run test:qa
+
+# 100게임 AI 대전 데드락 및 룰 위반 사냥 시뮬레이션
+npm run test:sim
+```
+
+---
+
+## 🤝 기여하기 (Contributing)
+
+이 프로젝트는 넷러너를 즐기고 싶은 모든 이들에게 열려 있습니다!
+* 새로운 카드 능력 및 아이스브레이커 구현
+* 다양한 커스텀 덱 빌딩 시스템 추가
+* UI 테마 개선 및 버그 제보
+
+언제든지 Pull Request나 Issue를 통해 자유롭게 기여해 주세요!
+
+---
+
+### 🛡️ Disclaimer
+*본 프로젝트는 비영리 팬 메이드 프로젝트입니다. Android: Netrunner 관련 모든 이미지 및 텍스트 리소스의 저작권은 Null Signal Games 및 오리지널 저작권 소유자에게 있습니다.*
