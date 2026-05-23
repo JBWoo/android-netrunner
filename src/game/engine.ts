@@ -226,11 +226,11 @@ export function endRunnerTurn(state: GameState): GameState {
 // 득점 계산 및 게임 오버 판정
 export function checkVictory(state: GameState): GameState {
   let tempState = cloneState(state);
-  if (tempState.corp.score >= 6) {
+  if (tempState.corp.score >= 7) {
     tempState.winner = 'Corp';
     tempState.phase = 'game-over';
     tempState.logs = addLog(tempState.logs, `Corp가 의제 점수 ${tempState.corp.score}점을 획득하여 승리했습니다!`, 'System');
-  } else if (tempState.runner.score >= 6) {
+  } else if (tempState.runner.score >= 7) {
     tempState.winner = 'Runner';
     tempState.phase = 'game-over';
     tempState.logs = addLog(tempState.logs, `Runner가 의제 점수 ${tempState.runner.score}점을 획득하여 승리했습니다!`, 'System');

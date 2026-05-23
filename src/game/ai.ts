@@ -178,7 +178,8 @@ export function runnerPlayTurnStep(state: GameState): GameState {
     return resolveMulligan(tempState, 'Runner', []);
   }
 
-  if (tempState.runner.clicks === 0 && tempState.phase === 'runner-action') {
+  const isRunnerPlayerHuman = tempState.gameMode === 'runner-human';
+  if (tempState.runner.clicks === 0 && tempState.phase === 'runner-action' && !tempState.run && !isRunnerPlayerHuman) {
     return endRunnerTurn(tempState);
   }
 

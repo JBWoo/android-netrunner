@@ -116,7 +116,7 @@ export const Board: React.FC<BoardProps> = ({
                 showFaceDown={!isCorpPlayerHuman} // 러너 화면에서는 Corp 손패 감춤
                 interactive={isCorpPlayerHuman && (phase === 'corp-mulligan' || (isCorpActive && phase === 'corp-action') || phase === 'corp-discard')}
                 onClick={() => handleCardClick(card)}
-                glowColor={mulliganSelectedIds.has(card.id) ? 'amber' : null}
+                glowColor={mulliganSelectedIds.has(card.id) ? 'corp' : null}
                 isSelected={selectedCardId === card.id || mulliganSelectedIds.has(card.id)}
                 hasActiveSelection={selectedCardId !== null || mulliganSelectedIds.size > 0}
                 isHand={isCorpPlayerHuman}
@@ -472,7 +472,7 @@ export const Board: React.FC<BoardProps> = ({
                 showFaceDown={!isRunnerPlayerHuman} // Corp 화면에서는 러너 손패 가림
                 interactive={isRunnerPlayerHuman && (phase === 'runner-mulligan' || (isRunnerActive && phase === 'runner-action') || phase === 'runner-discard')}
                 onClick={() => handleCardClick(card)}
-                glowColor={mulliganSelectedIds.has(card.id) ? 'amber' : null}
+                glowColor={mulliganSelectedIds.has(card.id) ? 'runner' : null}
                 isSelected={selectedCardId === card.id || mulliganSelectedIds.has(card.id)}
                 hasActiveSelection={selectedCardId !== null || mulliganSelectedIds.size > 0}
                 isHand={isRunnerPlayerHuman}
