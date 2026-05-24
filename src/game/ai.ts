@@ -4,7 +4,8 @@ import {
   scoreAgenda, playCard, executeResourceClick, initiateRun, 
   resolveSubroutines, resolveAccessCard, jackOut, transitionRun, endRun,
   discardCard, endRunnerTurn, paySkunkworksCost, resolveMulligan, endCorpTurn,
-  addLog
+  addLog, skipTaoSwap, retrieveCardFromArchives, skipHbRetrieve,
+  getBreakerStats, resolveNbnRealityPlusChoice, resolvePublicTrailChoice, resolveWildcatStrikeChoice
 } from './engine';
 
 // ----------------------------------------------------
@@ -12,6 +13,23 @@ import {
 // ----------------------------------------------------
 export function corpPlayTurnStep(state: GameState): GameState {
   let tempState = { ...state };
+  
+  if (tempState.phase === 'nbn-reality-plus-choice') {
+    const choice = tempState.corp.hand.length <= 3 && tempState.corp.deck.length >= 2 ? 'draw' : 'credits';
+    return resolveNbnRealityPlusChoice(tempState, choice);
+  }
+
+  if (tempState.phase === 'wildcat-strike-choice') {
+    const choice = tempState.runner.credits >= 8 ? 'credits' : 'draw';
+    return resolveWildcatStrikeChoice(tempState, choice);
+  }
+
+  if (tempState.phase === 'hb-retrieve-card') {
+    if (tempState.corp.discard.length > 0) {
+      return retrieveCardFromArchives(tempState, tempState.corp.discard[0].id);
+    }
+    return skipHbRetrieve(tempState);
+  }
   
   if (tempState.phase === 'corp-mulligan') {
     const agendas = tempState.corp.hand.filter(c => c.type === 'Agenda');
@@ -203,6 +221,15 @@ export function corpPlayTurnStep(state: GameState): GameState {
 export function runnerPlayTurnStep(state: GameState): GameState {
   let tempState = { ...state };
 
+  if (tempState.phase === 'public-trail-choice') {
+    const pay = tempState.runner.credits >= 8;
+    return resolvePublicTrailChoice(tempState, pay);
+  }
+
+  if (tempState.phase === 'tao-swap-ice') {
+    return skipTaoSwap(tempState);
+  }
+
   if (tempState.phase === 'runner-mulligan') {
     const moneyCards = tempState.runner.hand.filter(c => c.codeName === 'sure_gamble' || c.codeName === 'creative_commission');
     const breakers = tempState.runner.hand.filter(c => c.type === 'Program');
@@ -363,27 +390,16 @@ function runnerEncounterOrAccessStep(state: GameState): GameState {
     }
 
     if (bestBreaker) {
-      // 1. 강도 매칭 (Strengh matching)
-      let currentStrength = bestBreaker.strength || 0;
-      // Unity 특수 효과: 강도가 설치된 아이스브레이커의 수만큼 상승
-      if (bestBreaker.codeName === 'unity') {
-        const icebreakerCount = breakers.length;
-        currentStrength += icebreakerCount;
-      }
+      const stats = getBreakerStats(tempState, bestBreaker);
       
+      // 1. 강도 매칭 (Strengh matching)
+      let currentStrength = stats.baseStrength;
       const iceStrength = ice.strength || 0;
       let boostCost = 0;
 
       if (currentStrength < iceStrength) {
-        // 강도를 올리는 데 필요한 비용 연산
         const diff = iceStrength - currentStrength;
-        if (bestBreaker.codeName === 'carmen') {
-          // 2크레딧당 +3 강도
-          boostCost = Math.ceil(diff / 3) * 2;
-        } else {
-          // 보통 1크레딧당 +1 강도
-          boostCost = diff;
-        }
+        boostCost = Math.ceil(diff / stats.boostAmt) * stats.boostCost;
       }
 
       // 2. 서브루틴 격파 비용 연산
@@ -391,16 +407,7 @@ function runnerEncounterOrAccessStep(state: GameState): GameState {
       const unbrokenSubs = run.subroutines.filter(s => !s.broken);
       
       if (unbrokenSubs.length > 0) {
-        if (bestBreaker.codeName === 'cleaver') {
-          // 1크레딧당 2서브루틴 해제
-          breakCredits = Math.ceil(unbrokenSubs.length / 2);
-        } else if (bestBreaker.codeName === 'carmen') {
-          // 2크레딧당 3서브루틴 해제
-          breakCredits = 2;
-        } else {
-          // 1크레딧당 1서브루틴 해제 (Unity, Mayfly)
-          breakCredits = unbrokenSubs.length;
-        }
+        breakCredits = Math.ceil(unbrokenSubs.length / stats.breakLimit) * stats.breakCost;
       }
 
       const totalRequired = boostCost + breakCredits;

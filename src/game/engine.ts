@@ -1,5 +1,9 @@
 import type { GameState, Card, ServerName, LogEntry, GameMode, Difficulty } from './types';
-import { buildCorpStarterDeck, buildRunnerStarterDeck } from './cards';
+import { 
+  buildCorpStarterDeck, buildRunnerStarterDeck, createCardInstance,
+  buildLoupDeck, buildZahyaDeck, buildTaoDeck,
+  buildHaasBioroidDeck, buildJintekiDeck, buildNbnDeck, buildWeylandDeck
+} from './cards';
 
 // 딥 카피 헬퍼
 export function cloneState(state: GameState): GameState {
@@ -56,10 +60,77 @@ export function applyNetDamage(state: GameState, amount: number, sourceName: str
   return tempState;
 }
 
+// 미트 데미지 처리 함수
+export function applyMeatDamage(state: GameState, amount: number, sourceName: string): GameState {
+  let tempState = cloneState(state);
+  let hand = [...tempState.runner.hand];
+  let discard = [...tempState.runner.discard];
+  let logs = [...tempState.logs];
+
+  logs = addLog(logs, `Runner가 ${sourceName}(으)로부터 ${amount}점의 Meat Damage를 입습니다.`, 'System');
+
+  for (let i = 0; i < amount; i++) {
+    if (hand.length === 0) {
+      tempState.runner.flatlined = true;
+      tempState.winner = 'Corp';
+      tempState.phase = 'game-over';
+      logs = addLog(logs, `Runner의 손패가 부족하여 플랫라인(Flatline) 상태가 되었습니다. Corp가 승리합니다!`, 'System');
+      break;
+    }
+    const randomIndex = Math.floor(Math.random() * hand.length);
+    const trashedCard = hand.splice(randomIndex, 1)[0];
+    discard.push(trashedCard);
+    logs = addLog(logs, `Runner가 카드(${trashedCard.title})를 손패에서 버렸습니다.`, 'Runner');
+  }
+
+  tempState.runner.hand = hand;
+  tempState.runner.discard = discard;
+  tempState.logs = logs;
+  return tempState;
+}
+
+
 // 게임 초기화 상태 생성
-export function createInitialState(gameMode: GameMode, difficulty: Difficulty): GameState {
-  const corpDeck = buildCorpStarterDeck();
-  const runnerDeck = buildRunnerStarterDeck();
+export function createInitialState(
+  gameMode: GameMode, 
+  difficulty: Difficulty,
+  runnerDeckType: 'loup' | 'zahya' | 'tao' | 'starter' = 'starter',
+  corpDeckType: 'haas' | 'jinteki' | 'nbn' | 'weyland' | 'starter' = 'starter'
+): GameState {
+  let corpDeck: Card[];
+  let corpIdentity: Card;
+  if (corpDeckType === 'haas') {
+    corpDeck = buildHaasBioroidDeck();
+    corpIdentity = createCardInstance('haas_bioroid_precision_design');
+  } else if (corpDeckType === 'nbn') {
+    corpDeck = buildNbnDeck();
+    corpIdentity = createCardInstance('nbn_reality_plus');
+  } else if (corpDeckType === 'weyland') {
+    corpDeck = buildWeylandDeck();
+    corpIdentity = createCardInstance('weyland_consortium_built_to_last');
+  } else if (corpDeckType === 'starter') {
+    corpDeck = buildCorpStarterDeck();
+    corpIdentity = createCardInstance('the_syndicate');
+  } else {
+    corpDeck = buildJintekiDeck();
+    corpIdentity = createCardInstance('jinteki_restoring_humanity');
+  }
+
+  let runnerDeck: Card[];
+  let runnerIdentity: Card;
+  if (runnerDeckType === 'loup') {
+    runnerDeck = buildLoupDeck();
+    runnerIdentity = createCardInstance('rene_loup_arcemont_party_animal');
+  } else if (runnerDeckType === 'zahya') {
+    runnerDeck = buildZahyaDeck();
+    runnerIdentity = createCardInstance('zahya_sadeghi_versatile_smuggler');
+  } else if (runnerDeckType === 'starter') {
+    runnerDeck = buildRunnerStarterDeck();
+    runnerIdentity = createCardInstance('the_catalyst');
+  } else {
+    runnerDeck = buildTaoDeck();
+    runnerIdentity = createCardInstance('tao_salonga_telepresence_magician');
+  }
   
   // 덱 셔플
   const shuffle = (array: Card[]) => {
@@ -81,6 +152,7 @@ export function createInitialState(gameMode: GameMode, difficulty: Difficulty): 
     difficulty,
     logs: [],
     corp: {
+      identity: corpIdentity,
       credits: 5,
       clicks: 0,
       deck: corpDeck,
@@ -88,9 +160,10 @@ export function createInitialState(gameMode: GameMode, difficulty: Difficulty): 
       discard: [],
       scoreArea: [],
       score: 0,
-      maximumHandSize: 5,
+      maximumHandSize: corpIdentity.codeName === 'haas_bioroid_precision_design' ? 6 : 5,
     },
     runner: {
+      identity: runnerIdentity,
       credits: 5,
       clicks: 0,
       deck: runnerDeck,
@@ -106,6 +179,7 @@ export function createInitialState(gameMode: GameMode, difficulty: Difficulty): 
       brainDamage: 0,
       flatlined: false,
       successfulRunThisTurn: false,
+      successfulRunLastTurn: false,
       drawsThisTurn: 0,
     },
     servers: {
@@ -117,7 +191,8 @@ export function createInitialState(gameMode: GameMode, difficulty: Difficulty): 
   };
 
   // 초기 손패 드로우 (Corp 5장, Runner 5장)
-  state.logs = addLog(state.logs, '게임을 시작합니다. 양 플레이어가 카드 5장을 드로우합니다.', 'System');
+  state.logs = addLog(state.logs, `게임을 시작합니다. Runner [${runnerIdentity.title}] vs Corp [${corpIdentity.title}]`, 'System');
+  state.logs = addLog(state.logs, '양 플레이어가 카드 5장을 드로우합니다.', 'System');
   for (let i = 0; i < 5; i++) {
     const cCard = state.corp.deck.pop();
     if (cCard) state.corp.hand.push(cCard);
@@ -138,9 +213,294 @@ export function checkTurnEnd(state: GameState): GameState {
   return state;
 }
 
+export function giveTag(state: GameState, amount: number): GameState {
+  let tempState = cloneState(state);
+  tempState.runner.tags += amount;
+  tempState.logs = addLog(tempState.logs, `Runner가 태그(Tag)를 ${amount}개 획득했습니다! (현재 태그: ${tempState.runner.tags}개)`, 'System');
+
+  // NBN Reality Plus
+  if (tempState.corp.identity?.codeName === 'nbn_reality_plus' && !tempState.corpUsedNbnThisTurn) {
+    tempState.corpUsedNbnThisTurn = true;
+    if (tempState.gameMode === 'corp-human') {
+      tempState.nbnChoicePrevPhase = tempState.phase;
+      tempState.phase = 'nbn-reality-plus-choice';
+      tempState.logs = addLog(tempState.logs, `NBN: Reality Plus 효과 격발: 2 [Credits]를 얻을지 카드 2장을 드로우할지 선택하십시오.`, 'System');
+    } else {
+      // AI Corp Choice
+      const chooseDraw = tempState.corp.hand.length <= 3 && tempState.corp.deck.length >= 2;
+      if (chooseDraw) {
+        for (let i = 0; i < 2; i++) {
+          if (tempState.corp.deck.length > 0) {
+            tempState.corp.hand.push(tempState.corp.deck.shift()!);
+          }
+        }
+        tempState.logs = addLog(tempState.logs, `NBN: Reality Plus 효과: AI Corp가 카드 2장을 드로우했습니다.`, 'Corp');
+      } else {
+        tempState.corp.credits += 2;
+        tempState.logs = addLog(tempState.logs, `NBN: Reality Plus 효과: AI Corp가 2 [Credits]를 획득했습니다.`, 'Corp');
+      }
+    }
+  }
+
+  return tempState;
+}
+
+export function swapIce(state: GameState, iceId1: string, iceId2: string): GameState {
+  let tempState = cloneState(state);
+  
+  let server1Key = '';
+  let idx1 = -1;
+  let server2Key = '';
+  let idx2 = -1;
+  
+  for (const serverKey of Object.keys(tempState.servers)) {
+    const server = tempState.servers[serverKey];
+    const i1 = server.ice.findIndex(ice => ice.id === iceId1);
+    if (i1 !== -1) {
+      server1Key = serverKey;
+      idx1 = i1;
+    }
+    const i2 = server.ice.findIndex(ice => ice.id === iceId2);
+    if (i2 !== -1) {
+      server2Key = serverKey;
+      idx2 = i2;
+    }
+  }
+  
+  if (server1Key && idx1 !== -1 && server2Key && idx2 !== -1) {
+    const ice1 = tempState.servers[server1Key].ice[idx1];
+    const ice2 = tempState.servers[server2Key].ice[idx2];
+    
+    tempState.servers[server1Key].ice[idx1] = ice2;
+    tempState.servers[server2Key].ice[idx2] = ice1;
+    
+    tempState.logs = addLog(tempState.logs, `Tao Salonga 효과: ${server1Key} 서버의 ${ice1.title}와 ${server2Key} 서버의 ${ice2.title}의 위치를 맞교환했습니다.`, 'Runner');
+  }
+  
+  if (tempState.taoSwapPrevPhase) {
+    tempState.phase = tempState.taoSwapPrevPhase;
+    tempState.taoSwapPrevPhase = undefined;
+  } else {
+    tempState.phase = 'runner-action';
+  }
+  
+  tempState.taoSelectedIceId1 = undefined;
+  return tempState;
+}
+
+export function skipTaoSwap(state: GameState): GameState {
+  let tempState = cloneState(state);
+  if (tempState.taoSwapPrevPhase) {
+    tempState.phase = tempState.taoSwapPrevPhase;
+    tempState.taoSwapPrevPhase = undefined;
+  } else {
+    tempState.phase = 'runner-action';
+  }
+  tempState.taoSelectedIceId1 = undefined;
+  tempState.logs = addLog(tempState.logs, `Tao Salonga 효과 사용을 건너뛰었습니다.`, 'Runner');
+  return tempState;
+}
+
+export function retrieveCardFromArchives(state: GameState, cardId: string): GameState {
+  let tempState = cloneState(state);
+  const cardIdx = tempState.corp.discard.findIndex(c => c.id === cardId);
+  if (cardIdx !== -1) {
+    const card = tempState.corp.discard[cardIdx];
+    tempState.corp.discard.splice(cardIdx, 1);
+    tempState.corp.hand.push(card);
+    tempState.logs = addLog(tempState.logs, `Precision Design 효과: 아카이브에서 ${card.title} 카드를 손패(HQ)로 회수했습니다.`, 'Corp');
+  }
+  
+  if (tempState.hbRetrievePrevPhase) {
+    tempState.phase = tempState.hbRetrievePrevPhase;
+    tempState.hbRetrievePrevPhase = undefined;
+  } else {
+    tempState.phase = 'corp-action';
+  }
+  return tempState;
+}
+
+export function skipHbRetrieve(state: GameState): GameState {
+  let tempState = cloneState(state);
+  if (tempState.hbRetrievePrevPhase) {
+    tempState.phase = tempState.hbRetrievePrevPhase;
+    tempState.hbRetrievePrevPhase = undefined;
+  } else {
+    tempState.phase = 'corp-action';
+  }
+  tempState.logs = addLog(tempState.logs, `Precision Design 효과 사용을 건너뛰었습니다.`, 'Corp');
+  return tempState;
+}
+
+export function resolveNbnRealityPlusChoice(state: GameState, choice: 'credits' | 'draw'): GameState {
+  let tempState = cloneState(state);
+  if (tempState.phase !== 'nbn-reality-plus-choice') return state;
+
+  if (choice === 'credits') {
+    tempState.corp.credits += 2;
+    tempState.logs = addLog(tempState.logs, `NBN: Reality Plus 효과: 2 [Credits]를 획득했습니다.`, 'Corp');
+  } else if (choice === 'draw') {
+    for (let i = 0; i < 2; i++) {
+      if (tempState.corp.deck.length > 0) {
+        tempState.corp.hand.push(tempState.corp.deck.shift()!);
+      }
+    }
+    tempState.logs = addLog(tempState.logs, `NBN: Reality Plus 효과: 카드 2장을 드로우했습니다.`, 'Corp');
+  }
+
+  if (tempState.nbnChoicePrevPhase) {
+    tempState.phase = tempState.nbnChoicePrevPhase;
+    tempState.nbnChoicePrevPhase = undefined;
+  } else {
+    tempState.phase = 'corp-action';
+  }
+
+  return tempState;
+}
+
+export function resolvePublicTrailChoice(state: GameState, pay: boolean): GameState {
+  let tempState = cloneState(state);
+  if (tempState.phase !== 'public-trail-choice') return state;
+
+  if (pay) {
+    if (tempState.runner.credits >= 8) {
+      tempState.runner.credits -= 8;
+      tempState.logs = addLog(tempState.logs, `Runner가 8 [Credits]를 지불하여 Public Trail의 태그를 방지했습니다.`, 'Runner');
+    } else {
+      tempState.logs = addLog(tempState.logs, `크레딧이 부족하여 태그를 방지할 수 없습니다.`, 'System');
+      return state;
+    }
+  } else {
+    tempState = giveTag(tempState, 1);
+  }
+
+  if (tempState.publicTrailPrevPhase) {
+    tempState.phase = tempState.publicTrailPrevPhase;
+    tempState.publicTrailPrevPhase = undefined;
+  } else {
+    tempState.phase = 'corp-action';
+  }
+
+  return tempState;
+}
+
+export function resolveTraceAi(state: GameState): GameState {
+  let tempState = cloneState(state);
+  if (!tempState.trace) return state;
+
+  const prevPhase = tempState.trace.prevPhase;
+  const traceStrength = tempState.trace.base + (tempState.trace.corpBid || 0);
+  const runnerLink = 0; // standard link
+  const creditsNeeded = traceStrength - runnerLink;
+
+  if (tempState.runner.credits >= creditsNeeded) {
+    tempState.runner.credits -= creditsNeeded;
+    tempState.trace.runnerBid = creditsNeeded;
+    tempState.logs = addLog(tempState.logs, `Runner AI가 ${creditsNeeded} [Credits]를 지불하여 Trace를 방지했습니다.`, 'Runner');
+  } else {
+    tempState.trace.runnerBid = 0;
+    tempState.logs = addLog(tempState.logs, `Runner AI가 지불을 거부하여 Trace가 성공했습니다.`, 'Runner');
+    if (tempState.trace.targetEffect === 'tag') {
+      tempState = giveTag(tempState, tempState.trace.value);
+    }
+  }
+
+  tempState.trace = null;
+  tempState.phase = prevPhase;
+
+  return checkTurnEnd(tempState);
+}
+
+export function resolveTraceCorpBid(state: GameState, bid: number): GameState {
+  let tempState = cloneState(state);
+  if (!tempState.trace) return state;
+
+  const prevPhase = tempState.trace.prevPhase;
+  // Deduct credits from Corp
+  tempState.corp.credits = Math.max(0, tempState.corp.credits - bid);
+  tempState.trace.corpBid = bid;
+  tempState.logs = addLog(tempState.logs, `Corp가 ${bid} [Credits]를 지불했습니다. (최종 Trace 세기: ${tempState.trace.base + bid})`, 'Corp');
+
+  // Runner AI automatically decides
+  const traceStrength = tempState.trace.base + bid;
+  const runnerLink = 0;
+  const creditsNeeded = traceStrength - runnerLink;
+
+  if (tempState.runner.credits >= creditsNeeded) {
+    tempState.runner.credits -= creditsNeeded;
+    tempState.trace.runnerBid = creditsNeeded;
+    tempState.logs = addLog(tempState.logs, `Runner AI가 ${creditsNeeded} [Credits]를 지불하여 Trace를 방지했습니다.`, 'Runner');
+  } else {
+    tempState.trace.runnerBid = 0;
+    tempState.logs = addLog(tempState.logs, `Runner AI가 지불을 거부하여 Trace가 성공했습니다.`, 'Runner');
+    if (tempState.trace.targetEffect === 'tag') {
+      tempState = giveTag(tempState, tempState.trace.value);
+    }
+  }
+
+  tempState.trace = null;
+  tempState.phase = prevPhase;
+
+  return checkTurnEnd(tempState);
+}
+
+export function resolveTraceRunnerBid(state: GameState, bid: number): GameState {
+  let tempState = cloneState(state);
+  if (!tempState.trace) return state;
+
+  const prevPhase = tempState.trace.prevPhase;
+  // Deduct credits from Runner
+  tempState.runner.credits = Math.max(0, tempState.runner.credits - bid);
+  tempState.trace.runnerBid = bid;
+  tempState.logs = addLog(tempState.logs, `Runner가 ${bid} [Credits]를 지불했습니다. (최종 Link 세기: ${bid})`, 'Runner');
+
+  const traceStrength = tempState.trace.base + (tempState.trace.corpBid || 0);
+  const linkStrength = bid; // link is 0
+
+  if (linkStrength >= traceStrength) {
+    tempState.logs = addLog(tempState.logs, `Trace 성공적으로 방지됨. (최종 Link 세기: ${linkStrength} >= Trace 세기: ${traceStrength})`, 'System');
+  } else {
+    tempState.logs = addLog(tempState.logs, `Trace 실패: 러너가 태그를 획득합니다. (최종 Link 세기: ${linkStrength} < Trace 세기: ${traceStrength})`, 'System');
+    if (tempState.trace.targetEffect === 'tag') {
+      tempState = giveTag(tempState, tempState.trace.value);
+    }
+  }
+
+  tempState.trace = null;
+  tempState.phase = prevPhase;
+
+  return checkTurnEnd(tempState);
+}
+
+export function resolveWildcatStrikeChoice(state: GameState, choice: 'credits' | 'draw'): GameState {
+  let tempState = cloneState(state);
+  if (tempState.phase !== 'wildcat-strike-choice') return state;
+
+  if (choice === 'credits') {
+    tempState.runner.credits += 6;
+    tempState.logs = addLog(tempState.logs, `Wildcat Strike 효과: Corp의 선택으로 6 [Credits]를 획득합니다.`, 'Runner');
+  } else if (choice === 'draw') {
+    for (let i = 0; i < 4; i++) {
+      const c = tempState.runner.deck.pop();
+      if (c) tempState.runner.hand.push(c);
+    }
+    tempState.logs = addLog(tempState.logs, `Wildcat Strike 효과: Corp의 선택으로 카드 4장을 드로우합니다.`, 'Runner');
+  }
+
+  if (tempState.wildcatStrikePrevPhase) {
+    tempState.phase = tempState.wildcatStrikePrevPhase;
+    tempState.wildcatStrikePrevPhase = undefined;
+  } else {
+    tempState.phase = 'runner-action';
+  }
+
+  return tempState;
+}
+
 // Corp 차례 개시 공통 처리
 export function startCorpTurn(state: GameState): GameState {
   let tempState = cloneState(state);
+  tempState.runner.successfulRunLastTurn = tempState.runner.successfulRunThisTurn;
   tempState.runner.successfulRunThisTurn = false;
   tempState.runner.pennyshaverTriggeredThisTurn = false;
   tempState.activePlayer = 'Corp';
@@ -148,6 +508,12 @@ export function startCorpTurn(state: GameState): GameState {
   tempState.turn += 1;
   tempState.phase = 'corp-draw';
   tempState.logs = addLog(tempState.logs, `Turn ${tempState.turn}: Corporation의 차례입니다.`, 'System');
+
+  // Reset turn-once flags
+  tempState.runnerUsedLoupThisTurn = false;
+  tempState.runnerUsedZahyaThisTurn = false;
+  tempState.corpUsedWeylandThisTurn = false;
+  tempState.corpUsedNbnThisTurn = false;
 
   // Nico Campaign 자동 레즈 보장 (턴 시작 시점)
   tempState.servers = Object.keys(tempState.servers).reduce((acc, serverKey) => {
@@ -211,12 +577,27 @@ export function startRunnerTurn(state: GameState): GameState {
   tempState.runner.pennyshaverTriggeredThisTurn = false;
   tempState.logs = addLog(tempState.logs, `Turn ${tempState.turn}: Runner의 차례입니다.`, 'System');
 
+  // Reset turn-once flags
+  tempState.runnerUsedLoupThisTurn = false;
+  tempState.runnerUsedZahyaThisTurn = false;
+  tempState.corpUsedWeylandThisTurn = false;
+  tempState.corpUsedNbnThisTurn = false;
+
+  // Jinteki Restoring Humanity (자신의 턴 종료/디스카드 페이즈가 완전히 끝난 시점)
+  if (tempState.corp.identity?.codeName === 'jinteki_restoring_humanity') {
+    const hasFacedown = tempState.corp.discard.some(c => (c as any).faceup === false);
+    if (hasFacedown) {
+      tempState.corp.credits += 1;
+      tempState.logs = addLog(tempState.logs, `Jinteki: Restoring Humanity 효과: 아카이브에 뒷면 카드가 있어 1 [Credit]을 획득합니다.`, 'Corp');
+    }
+  }
+
   // Smartware Distributor 시작 시 작동
   tempState.runner.rig = tempState.runner.rig.map(c => {
-    if (c.codeName === 'smartware_distributor' && c.hostedCounters > 0) {
+    if (c.codeName === 'smartware_distributor' && (c.hostedCredits || 0) > 0) {
       tempState.runner.credits += 1;
       tempState.logs = addLog(tempState.logs, `Smartware Distributor의 효과로 1 [Credit]을 획득합니다.`, 'Runner');
-      return { ...c, hostedCounters: c.hostedCounters - 1 };
+      return { ...c, hostedCredits: (c.hostedCredits || 0) - 1 };
     }
     return c;
   });
@@ -284,7 +665,7 @@ function getNextRemoteName(servers: { [key: string]: any }): string {
 }
 
 // 플레이어 공통 기본 액션
-export function executeBasicAction(state: GameState, actionType: 'gain-credit' | 'draw-card'): GameState {
+export function executeBasicAction(state: GameState, actionType: 'gain-credit' | 'draw-card' | 'remove-tag'): GameState {
   let tempState = cloneState(state);
   const player = tempState.activePlayer;
 
@@ -308,12 +689,26 @@ export function executeBasicAction(state: GameState, actionType: 'gain-credit' |
     }
   } else {
     if (tempState.runner.clicks <= 0 || tempState.phase !== 'runner-action') return state;
-    tempState.runner.clicks -= 1;
 
-    if (actionType === 'gain-credit') {
-      tempState.runner.credits += 1;
-      tempState.logs = addLog(tempState.logs, 'Runner가 [Click]을 소모하여 1 [Credit]을 획득했습니다.', 'Runner');
+    if (actionType === 'remove-tag') {
+      if (tempState.runner.tags <= 0) {
+        tempState.logs = addLog(tempState.logs, `제거할 태그가 없습니다.`, 'System');
+        return state;
+      }
+      if (tempState.runner.credits < 2) {
+        tempState.logs = addLog(tempState.logs, `크레딧이 부족하여 태그를 제거할 수 없습니다. (필요: 2 [Credits])`, 'System');
+        return state;
+      }
+      tempState.runner.clicks -= 1;
+      tempState.runner.credits -= 2;
+      tempState.runner.tags -= 1;
+      tempState.logs = addLog(tempState.logs, 'Runner가 1 [Click]과 2 [Credits]를 사용하여 태그 1개를 제거했습니다.', 'Runner');
     } else {
+      tempState.runner.clicks -= 1;
+      if (actionType === 'gain-credit') {
+        tempState.runner.credits += 1;
+        tempState.logs = addLog(tempState.logs, 'Runner가 [Click]을 소모하여 1 [Credit]을 획득했습니다.', 'Runner');
+      } else {
       if (tempState.runner.drawsThisTurn === undefined) {
         tempState.runner.drawsThisTurn = 0;
       }
@@ -335,8 +730,29 @@ export function executeBasicAction(state: GameState, actionType: 'gain-credit' |
       }
     }
   }
+  }
 
   return checkTurnEnd(tempState);
+}
+
+// 러너 메모리 한도 및 사용량 동적 계산 및 업데이트 유틸리티
+export function refreshRunnerMemory(state: GameState): GameState {
+  let tempState = cloneState(state);
+  let limit = 4; // 기본 메모리 한도
+  let used = 0;
+  
+  for (const c of tempState.runner.rig) {
+    if (c.codeName === 'pennyshaver' || c.codeName === 't400_memory_diamond' || c.codeName === 'dzmz_optimizer') {
+      limit += 1;
+    }
+    if (c.type === 'Program') {
+      used += c.memoryCost || 0;
+    }
+  }
+  
+  tempState.runner.memoryLimit = limit;
+  tempState.runner.memoryUsed = used;
+  return tempState;
 }
 
 // 카드 설치 액션 (Corp / Runner 공통)
@@ -419,8 +835,9 @@ export function installCard(state: GameState, cardId: string, serverName: Server
     if (card.type === 'Program') {
       const requiredMU = card.memoryCost || 0;
       // 메모리 제한 계산
+      tempState = refreshRunnerMemory(tempState);
       const limit = tempState.runner.memoryLimit;
-      const currentMU = tempState.runner.rig.reduce((sum, c) => sum + (c.memoryCost || 0), 0);
+      const currentMU = tempState.runner.memoryUsed;
       
       if (currentMU + requiredMU > limit) {
         tempState.logs = addLog(tempState.logs, `메모리 유닛(MU)이 부족합니다. (한도: ${limit} MU, 현재: ${currentMU} MU)`, 'System');
@@ -438,12 +855,28 @@ export function installCard(state: GameState, cardId: string, serverName: Server
       installedCard.hostedCredits = 9;
     } else if (card.codeName === 'red_team') {
       installedCard.hostedCredits = 12;
-    } else if (card.codeName === 'pennyshaver') {
-      tempState.runner.memoryLimit = 5;
+    }
+
+    const isTrojan = ['botulus', 'tranquilizer', 'leech'].includes(card.codeName);
+    let hostIceTitle = '';
+    if (isTrojan && serverName) {
+      for (const serverKey of Object.keys(tempState.servers)) {
+        const found = tempState.servers[serverKey].ice.find(ice => ice.id === serverName);
+        if (found) {
+          installedCard.hostCardId = found.id;
+          hostIceTitle = found.title;
+          break;
+        }
+      }
     }
 
     tempState.runner.rig.push(installedCard);
-    tempState.logs = addLog(tempState.logs, `Runner가 ${installedCard.title} 카드를 설치했습니다. (비용: ${finalCost} [Credits])`, 'Runner');
+    if (hostIceTitle) {
+      tempState.logs = addLog(tempState.logs, `Runner가 ${installedCard.title} 카드를 ${hostIceTitle} ICE 위에 호스트하여 설치했습니다. (비용: ${finalCost} [Credits])`, 'Runner');
+    } else {
+      tempState.logs = addLog(tempState.logs, `Runner가 ${installedCard.title} 카드를 설치했습니다. (비용: ${finalCost} [Credits])`, 'Runner');
+    }
+    tempState = refreshRunnerMemory(tempState);
   }
 
   return checkTurnEnd(tempState);
@@ -525,11 +958,18 @@ export function advanceCard(state: GameState, cardId: string): GameState {
     const newRoot = server.root.map(c => {
       if (c.id === cardId) {
         if (c.type === 'Agenda' || c.codeName === 'urtica_cipher') {
+          const preCounters = c.advancedCounters;
           c.advancedCounters += 1;
           advanced = true;
           tempState.corp.credits -= 1;
           tempState.corp.clicks -= 1;
           tempState.logs = addLog(tempState.logs, `Corp가 ${serverKey} 서버의 카드를 발전시켰습니다.`, 'Corp');
+
+          // Weyland Consortium: Built to Last
+          if (tempState.corp.identity?.codeName === 'weyland_consortium_built_to_last' && preCounters === 0) {
+            tempState.corp.credits += 2;
+            tempState.logs = addLog(tempState.logs, `Built to Last 효과: 발전 카운터가 없던 카드에 처음으로 발전을 올려 2 [Credits]를 획득합니다.`, 'Corp');
+          }
         }
       }
       return c;
@@ -604,6 +1044,10 @@ export function scoreAgenda(state: GameState, cardId: string): GameState {
         acc[serverKey] = { ...server, ice: newIce };
         return acc;
       }, {} as typeof tempState.servers);
+    } else if (card.codeName === 'orbital_superiority') {
+      if (tempState.runner.tags > 0) {
+        tempState = applyMeatDamage(tempState, 4, 'Orbital Superiority');
+      }
     }
 
     // 원격 서버가 비게 되었다면 서버 삭제 정리 (기본서버 HQ/RD/Archives 제외)
@@ -615,6 +1059,20 @@ export function scoreAgenda(state: GameState, cardId: string): GameState {
     }
 
     tempState = checkVictory(tempState);
+
+    // Haas-Bioroid Precision Design
+    if (tempState.corp.identity?.codeName === 'haas_bioroid_precision_design' && tempState.corp.discard.length > 0) {
+      tempState.hbRetrievePrevPhase = tempState.phase;
+      tempState.phase = 'hb-retrieve-card';
+      tempState.logs = addLog(tempState.logs, `Precision Design 효과 격발: 아카이브에서 손패로 회수할 카드를 하나 선택하십시오.`, 'System');
+    }
+
+    // Shaper: Tao Salonga
+    if (tempState.runner.identity?.codeName === 'tao_salonga_telepresence_magician') {
+      tempState.taoSwapPrevPhase = tempState.phase;
+      tempState.phase = 'tao-swap-ice';
+      tempState.logs = addLog(tempState.logs, `Tao Salonga 효과 격발: 교체할 ICE 2개를 선택해 주십시오.`, 'System');
+    }
   }
 
   return tempState;
@@ -630,6 +1088,20 @@ export function playCard(state: GameState, cardId: string): GameState {
     const cardIndex = tempState.corp.hand.findIndex(c => c.id === cardId);
     if (cardIndex === -1) return state;
     const card = tempState.corp.hand[cardIndex];
+
+    // Prerequisites checks
+    if (card.codeName === 'public_trail') {
+      if (!tempState.runner.successfulRunLastTurn) {
+        tempState.logs = addLog(tempState.logs, `러너가 직전 턴에 성공적인 런을 완료하지 않았으므로 Public Trail을 사용할 수 없습니다.`, 'System');
+        return state;
+      }
+    }
+    if (card.codeName === 'retribution') {
+      if (tempState.runner.tags <= 0) {
+        tempState.logs = addLog(tempState.logs, `러너가 태그된 상태가 아니므로 Retribution을 사용할 수 없습니다.`, 'System');
+        return state;
+      }
+    }
 
     if (tempState.corp.credits < card.cost) {
       tempState.logs = addLog(tempState.logs, `크레딧이 부족하여 작전 카드를 사용할 수 없습니다.`, 'System');
@@ -652,21 +1124,121 @@ export function playCard(state: GameState, cardId: string): GameState {
       tempState.logs = addLog(tempState.logs, 'Government Subsidy 효과로 15 [Credits]를 획득했습니다.', 'Corp');
     } else if (card.codeName === 'seamless_launch') {
       tempState.logs = addLog(tempState.logs, 'Seamless Launch 사용: 발전할 카드를 고르십시오. (수동 UI 지연)', 'System');
-      // 실제 발전 효과는 컴포넌트 레벨 혹은 AI 상에서 후속 연결 (간소화: 득점원격의 Agenda/Cipher 1개 탐지 후 발전 2개)
       let applied = false;
       tempState.servers = Object.keys(tempState.servers).reduce((acc, serverKey) => {
         const server = tempState.servers[serverKey];
         const newRoot = server.root.map(c => {
           if (!applied && (c.type === 'Agenda' || c.codeName === 'urtica_cipher')) {
+            const preCounters = c.advancedCounters;
             c.advancedCounters += 2;
             applied = true;
             tempState.logs = addLog(tempState.logs, `Seamless Launch의 효과로 ${serverKey} 서버의 카드를 발전시켰습니다.`, 'Corp');
+
+            // Weyland Consortium: Built to Last
+            if (tempState.corp.identity?.codeName === 'weyland_consortium_built_to_last' && preCounters === 0) {
+              tempState.corp.credits += 2;
+              tempState.logs = addLog(tempState.logs, `Built to Last 효과: 발전 카운터가 없던 카드에 처음으로 발전을 올려 2 [Credits]를 획득합니다.`, 'Corp');
+            }
           }
           return c;
         });
         acc[serverKey] = { ...server, root: newRoot };
         return acc;
       }, {} as typeof tempState.servers);
+    } else if (card.codeName === 'sprint') {
+      // Draw 3
+      for (let i = 0; i < 3; i++) {
+        if (tempState.corp.deck.length > 0) {
+          tempState.corp.hand.push(tempState.corp.deck.shift()!);
+        }
+      }
+      // Shuffle 2 from HQ into R&D
+      const toShuffleCount = Math.min(2, tempState.corp.hand.length);
+      const shuffled: Card[] = [];
+      for (let i = 0; i < toShuffleCount; i++) {
+        const rIdx = Math.floor(Math.random() * tempState.corp.hand.length);
+        shuffled.push(tempState.corp.hand.splice(rIdx, 1)[0]);
+      }
+      tempState.corp.deck.push(...shuffled);
+      tempState.corp.deck.sort(() => Math.random() - 0.5);
+      tempState.logs = addLog(tempState.logs, `Sprint 효과: 카드 3장을 드로우한 뒤, HQ에서 카드 ${toShuffleCount}장을 R&D로 돌리고 덱을 셔플했습니다.`, 'Corp');
+    } else if (card.codeName === 'hansei_review') {
+      tempState.corp.credits += 10;
+      if (tempState.corp.hand.length > 0) {
+        const rIdx = Math.floor(Math.random() * tempState.corp.hand.length);
+        const trashed = tempState.corp.hand.splice(rIdx, 1)[0];
+        (trashed as any).faceup = true;
+        tempState.corp.discard.push(trashed);
+        tempState.logs = addLog(tempState.logs, `Hansei Review 효과: 10 [Credits]를 획득하고, HQ에서 카드(${trashed.title})를 버렸습니다.`, 'Corp');
+      } else {
+        tempState.logs = addLog(tempState.logs, `Hansei Review 효과: 10 [Credits]를 획득했습니다.`, 'Corp');
+      }
+    } else if (card.codeName === 'predictive_planogram') {
+      const isTagged = tempState.runner.tags > 0;
+      if (isTagged) {
+        tempState.corp.credits += 3;
+        for (let i = 0; i < 3; i++) {
+          if (tempState.corp.deck.length > 0) {
+            tempState.corp.hand.push(tempState.corp.deck.shift()!);
+          }
+        }
+        tempState.logs = addLog(tempState.logs, `Predictive Planogram 효과: 러너가 태그되었으므로 3 [Credits] 획득 및 3 드로우를 모두 수행했습니다.`, 'Corp');
+      } else {
+        const chooseDraw = tempState.corp.hand.length <= 3 && tempState.corp.deck.length >= 3;
+        if (chooseDraw) {
+          for (let i = 0; i < 3; i++) {
+            if (tempState.corp.deck.length > 0) {
+              tempState.corp.hand.push(tempState.corp.deck.shift()!);
+            }
+          }
+          tempState.logs = addLog(tempState.logs, `Predictive Planogram 효과: 카드 3장을 드로우했습니다.`, 'Corp');
+        } else {
+          tempState.corp.credits += 3;
+          tempState.logs = addLog(tempState.logs, `Predictive Planogram 효과: 3 [Credits]를 획득했습니다.`, 'Corp');
+        }
+      }
+    } else if (card.codeName === 'public_trail') {
+      tempState.trace = {
+        base: 4,
+        corpBid: null,
+        runnerBid: null,
+        prevPhase: tempState.phase,
+        targetEffect: 'tag',
+        value: 1
+      };
+
+      if (tempState.gameMode === 'corp-human') {
+        tempState.phase = 'trace-corp-bid';
+        tempState.logs = addLog(tempState.logs, `Trace 4 격발! Corp의 베팅 대기 중...`, 'System');
+      } else {
+        // Corp is AI. Corp AI decides its bid.
+        const aiBid = Math.min(3, Math.floor(tempState.corp.credits * 0.3));
+        tempState.corp.credits = Math.max(0, tempState.corp.credits - aiBid);
+        tempState.trace.corpBid = aiBid;
+        tempState.logs = addLog(tempState.logs, `Trace 4 격발! Corp AI가 ${aiBid} [Credits]를 지불했습니다. (최종 Trace 세기: ${4 + aiBid})`, 'Corp');
+
+        if (tempState.gameMode === 'runner-human') {
+          tempState.phase = 'trace-runner-bid';
+        } else {
+          // AI vs AI
+          tempState = resolveTraceAi(tempState);
+        }
+      }
+    } else if (card.codeName === 'retribution') {
+      const targets = tempState.runner.rig.filter(c => c.type === 'Program' || c.type === 'Hardware');
+      if (targets.length > 0) {
+        targets.sort((a, b) => b.cost - a.cost);
+        const targetCard = targets[0];
+        const rIdx = tempState.runner.rig.findIndex(c => c.id === targetCard.id);
+        if (rIdx !== -1) {
+          const trashed = tempState.runner.rig.splice(rIdx, 1)[0];
+          tempState.runner.discard.push(trashed);
+          tempState = refreshRunnerMemory(tempState);
+          tempState.logs = addLog(tempState.logs, `Retribution 효과: 설치된 ${trashed.type}인 ${trashed.title}를 폐기했습니다.`, 'Corp');
+        }
+      } else {
+        tempState.logs = addLog(tempState.logs, `Retribution 효과: 폐기할 프로그램이나 하드웨어가 설치되어 있지 않습니다.`, 'Corp');
+      }
     }
 
   } else {
@@ -710,14 +1282,55 @@ export function playCard(state: GameState, cardId: string): GameState {
       }
       tempState.logs = addLog(tempState.logs, 'VRcation 효과로 카드 4장을 드로우했습니다.', 'Runner');
     } else if (card.codeName === 'overclock') {
-      // Overclock 런 시작
       tempState.logs = addLog(tempState.logs, 'Overclock: 런을 시작합니다. 5 임시 크레딧이 런 도중 제공됩니다.', 'Runner');
-      // 런은 이후 initiateRun에서 연동
     } else if (card.codeName === 'jailbreak') {
-      // Jailbreak 런 시작
       tempState.logs = addLog(tempState.logs, 'Jailbreak: 중앙 서버 런을 시작합니다.', 'Runner');
     } else if (card.codeName === 'tread_lightly') {
       tempState.logs = addLog(tempState.logs, 'Tread Lightly 효과로 이번 런 동안 방어 ICE의 Rez 비용이 +3 됩니다.', 'Runner');
+    } else if (card.codeName === 'wildcat_strike') {
+      if (tempState.gameMode === 'corp-human') {
+        tempState.wildcatStrikePrevPhase = tempState.phase;
+        tempState.phase = 'wildcat-strike-choice';
+        tempState.logs = addLog(tempState.logs, `Runner가 Wildcat Strike를 플레이했습니다. Corp의 선택 대기 중...`, 'System');
+      } else {
+        const giveCredits = tempState.runner.credits >= 8;
+        if (giveCredits) {
+          tempState.runner.credits += 6;
+          tempState.logs = addLog(tempState.logs, `Wildcat Strike 효과: Corp AI의 선택으로 Runner가 6 [Credits]를 획득했습니다.`, 'Corp');
+        } else {
+          for (let i = 0; i < 4; i++) {
+            const c = tempState.runner.deck.pop();
+            if (c) tempState.runner.hand.push(c);
+          }
+          tempState.logs = addLog(tempState.logs, `Wildcat Strike 효과: Corp AI의 선택으로 Runner가 카드 4장을 드로우했습니다.`, 'Corp');
+        }
+      }
+    } else if (card.codeName === 'mutual_favor') {
+      const bIdx = tempState.runner.deck.findIndex(c => c.type === 'Program' && c.subTypes.includes('Icebreaker'));
+      if (bIdx !== -1) {
+        const breaker = tempState.runner.deck.splice(bIdx, 1)[0];
+        tempState.runner.hand.push(breaker);
+        tempState.runner.deck.sort(() => Math.random() - 0.5);
+        tempState.logs = addLog(tempState.logs, `Mutual Favor 효과: 덱에서 아이스브레이커(${breaker.title})를 찾아서 손패로 가져왔습니다.`, 'Runner');
+
+        if (tempState.runner.successfulRunThisTurn) {
+          const installCost = breaker.cost;
+          const memoryRequired = breaker.memoryCost || 0;
+          const memoryAvailable = tempState.runner.memoryLimit - tempState.runner.memoryUsed;
+          if (tempState.runner.credits >= installCost && memoryAvailable >= memoryRequired) {
+            const hIdx = tempState.runner.hand.findIndex(c => c.id === breaker.id);
+            if (hIdx !== -1) {
+              tempState.runner.hand.splice(hIdx, 1);
+              tempState.runner.credits -= installCost;
+              tempState.runner.rig.push(breaker);
+              tempState = refreshRunnerMemory(tempState);
+              tempState.logs = addLog(tempState.logs, `Mutual Favor 추가 효과: 이번 턴 성공적인 런을 완료했으므로 즉시 설치했습니다.`, 'Runner');
+            }
+          }
+        }
+      } else {
+        tempState.logs = addLog(tempState.logs, `Mutual Favor 효과: 덱에 아이스브레이커가 존재하지 않습니다.`, 'Runner');
+      }
     }
   }
 
@@ -774,10 +1387,11 @@ export function executeResourceClick(state: GameState, cardId: string): GameStat
           updated = true;
           tempState.logs = addLog(tempState.logs, `Telework Contract 업무: ${gain} [Credits] 수령 (남은 수량: ${c.hostedCredits})`, 'Runner');
         } else if (c.codeName === 'smartware_distributor') {
-          c.hostedCounters += 2;
+          const currentCredits = c.hostedCredits || 0;
+          c.hostedCredits = currentCredits + 3;
           tempState.runner.clicks -= 1;
           updated = true;
-          tempState.logs = addLog(tempState.logs, `Smartware Distributor에 파워 카운터 2개를 충전했습니다.`, 'Runner');
+          tempState.logs = addLog(tempState.logs, `Smartware Distributor에 크레딧 3개를 충전했습니다. (현재 크레딧: ${c.hostedCredits}🪙)`, 'Runner');
         }
       }
       return c;
@@ -801,6 +1415,7 @@ export function discardCard(state: GameState, cardId: string): GameState {
     const idx = tempState.corp.hand.findIndex(c => c.id === cardId);
     if (idx !== -1) {
       const trashed = tempState.corp.hand.splice(idx, 1)[0];
+      (trashed as any).faceup = false;
       tempState.corp.discard.push(trashed);
       tempState.logs = addLog(tempState.logs, `Corp가 손패 초과로 카드(${trashed.title})를 Archives로 버렸습니다.`, 'Corp');
       
@@ -938,6 +1553,12 @@ export function transitionRun(state: GameState): GameState {
       // 레즈 상태면 조우(Encounter) 페이즈로 전환
       tempState.run.phase = 'encounter';
       tempState.logs = addLog(tempState.logs, `Runner가 레즈된 ${currentIce.title} ICE와 조우(Encounter)합니다.`, 'System');
+
+      // Funhouse encounter effect
+      if (currentIce.codeName === 'funhouse') {
+        tempState = giveTag(tempState, 1);
+        tempState.logs = addLog(tempState.logs, `Funhouse 효과: 러너가 조우하여 태그 1개를 획득합니다.`, 'System');
+      }
     } else {
       // 비레즈 상태면 자동으로 통과(Pass)
       tempState.logs = addLog(tempState.logs, `${currentIce?.title || 'ICE'}가 Rez되지 않아 통과했습니다.`, 'System');
@@ -949,6 +1570,22 @@ export function transitionRun(state: GameState): GameState {
     tempState.run.success = true;
     tempState.run.phase = 'breach';
     tempState.runner.successfulRunThisTurn = true;
+
+    // 바이러스 카운터 충전 (Leech, Conduit)
+    const isCentral = ['HQ', 'RD', 'Archives'].includes(run.target);
+    tempState.runner.rig = tempState.runner.rig.map(c => {
+      if (c.codeName === 'leech' && isCentral) {
+        const val = c.hostedCounters || 0;
+        tempState.logs = addLog(tempState.logs, `중앙 서버 런 성공: Leech 위에 바이러스 카운터 1개를 올립니다.`, 'System');
+        return { ...c, hostedCounters: val + 1 };
+      }
+      if (c.codeName === 'conduit' && run.target === 'RD') {
+        const val = c.hostedCounters || 0;
+        tempState.logs = addLog(tempState.logs, `R&D 서버 런 성공: Conduit 위에 바이러스 카운터 1개를 올립니다.`, 'System');
+        return { ...c, hostedCounters: val + 1 };
+      }
+      return c;
+    });
 
     // Jailbreak 카드 성공 시 1 드로우 사전 지급
     if (run.viaCardCode === 'jailbreak') {
@@ -994,6 +1631,7 @@ export function transitionRun(state: GameState): GameState {
       }
     } else if (run.target === 'Archives') {
       // 아카이브 전체 공개 액세스
+      tempState.corp.discard = tempState.corp.discard.map(c => ({ ...c, faceup: true } as any));
       accessed = [...tempState.corp.discard];
     } else {
       // Remote 서버 루트에 있는 모든 카드 액세스
@@ -1019,19 +1657,63 @@ export function breakSubroutine(state: GameState, subId: string, breakerId?: str
   let tempState = cloneState(state);
   if (!tempState.run || tempState.run.phase !== 'encounter') return state;
 
+  if (breakerId) {
+    const breaker = tempState.runner.rig.find(c => c.id === breakerId);
+    if (breaker) {
+      const stats = getBreakerStats(tempState, breaker);
+      const cost = stats.breakCost;
+      const totalAvailable = tempState.runner.credits + (tempState.run.overclockCredits || 0);
+      if (totalAvailable < cost) {
+        tempState.logs = addLog(tempState.logs, `크레딧이 부족하여 서브루틴을 해제할 수 없습니다.`, 'System');
+        return state; // cannot afford
+      }
+
+      let remainingCost = cost;
+      if (tempState.run.overclockCredits !== undefined && tempState.run.overclockCredits > 0) {
+        const used = Math.min(tempState.run.overclockCredits, remainingCost);
+        tempState.run.overclockCredits -= used;
+        remainingCost -= used;
+      }
+      if (remainingCost > 0) {
+        tempState.runner.credits -= remainingCost;
+      }
+
+      if (breaker.codeName === 'mayfly') {
+        tempState.run.mayflyUsed = true;
+      }
+
+      // break up to breakLimit subroutines starting with the targeted subId
+      let brokenCount = 0;
+      tempState.run.subroutines = tempState.run.subroutines.map(sub => {
+        if (sub.id === subId && !sub.broken) {
+          brokenCount++;
+          return { ...sub, broken: true };
+        }
+        return sub;
+      });
+
+      if (brokenCount < stats.breakLimit) {
+        tempState.run.subroutines = tempState.run.subroutines.map(sub => {
+          if (!sub.broken && brokenCount < stats.breakLimit) {
+            brokenCount++;
+            return { ...sub, broken: true };
+          }
+          return sub;
+        });
+      }
+
+      tempState.logs = addLog(tempState.logs, `${breaker.title}을 사용하여 서브루틴 ${brokenCount}개를 해제했습니다. (소모: ${cost} [Credits])`, 'Runner');
+      return tempState;
+    }
+  }
+
+  // Fallback for tests or manual click break without breakerId
   tempState.run.subroutines = tempState.run.subroutines.map(sub => {
     if (sub.id === subId) {
       return { ...sub, broken: true };
     }
     return sub;
   });
-
-  if (breakerId) {
-    const breaker = tempState.runner.rig.find(c => c.id === breakerId);
-    if (breaker && breaker.codeName === 'mayfly') {
-      tempState.run.mayflyUsed = true;
-    }
-  }
 
   return tempState;
 }
@@ -1114,6 +1796,82 @@ export function resolveSubroutines(state: GameState): GameState {
         server.ice.unshift(newIce);
         tempState.logs = addLog(tempState.logs, `Bran 1.0 효과로 ${newIce.title}가 무상으로 안쪽에 추가 설치되었습니다.`, 'Corp');
       }
+    } else if (nextSub.effectType === 'give-tag') {
+      tempState = giveTag(tempState, 1);
+    } else if (nextSub.effectType === 'give-tag-unless-pay-4-credits') {
+      if (tempState.runner.credits >= 4) {
+        tempState.runner.credits -= 4;
+        tempState.logs = addLog(tempState.logs, `러너가 4 [Credits]를 내어 태그 획득을 모면했습니다.`, 'System');
+      } else {
+        tempState = giveTag(tempState, 1);
+      }
+    } else if (nextSub.effectType === 'ballista-sub') {
+      const hasProgram = tempState.runner.rig.some(c => c.type === 'Program');
+      if (hasProgram) {
+        const pIdx = tempState.runner.rig.findIndex(c => c.type === 'Program');
+        if (pIdx !== -1) {
+          const trashed = tempState.runner.rig.splice(pIdx, 1)[0];
+          tempState.runner.discard.push(trashed);
+          tempState = refreshRunnerMemory(tempState);
+          tempState.logs = addLog(tempState.logs, `Ballista 효과: 설치된 프로그램 ${trashed.title}가 폐기되었습니다.`, 'System');
+        }
+      } else {
+        runEndedBySub = true;
+      }
+    } else if (nextSub.effectType === 'trash-program') {
+      const pIdx = tempState.runner.rig.findIndex(c => c.type === 'Program');
+      if (pIdx !== -1) {
+        const trashed = tempState.runner.rig.splice(pIdx, 1)[0];
+        tempState.runner.discard.push(trashed);
+        tempState = refreshRunnerMemory(tempState);
+        tempState.logs = addLog(tempState.logs, `Ansel 1.0 효과: 설치된 프로그램 ${trashed.title}가 폐기되었습니다.`, 'System');
+      } else {
+        tempState.logs = addLog(tempState.logs, `Ansel 1.0 효과: 폐기할 설치된 프로그램이 없습니다.`, 'System');
+      }
+    } else if (nextSub.effectType === 'install-from-archives-or-hq') {
+      let cardToInstall: Card | null = null;
+      let fromHQ = true;
+      let idx = tempState.corp.hand.findIndex(c => c.type === 'ICE' || c.type === 'Asset' || c.type === 'Upgrade' || c.type === 'Agenda');
+      if (idx !== -1) {
+        cardToInstall = tempState.corp.hand.splice(idx, 1)[0];
+      } else {
+        idx = tempState.corp.discard.findIndex(c => c.type === 'ICE' || c.type === 'Asset' || c.type === 'Upgrade' || c.type === 'Agenda');
+        if (idx !== -1) {
+          cardToInstall = tempState.corp.discard.splice(idx, 1)[0];
+          fromHQ = false;
+        }
+      }
+      if (cardToInstall) {
+        const sourceName = fromHQ ? 'HQ' : '아카이브';
+        if (cardToInstall.type === 'ICE') {
+          const server = tempState.servers[run.target];
+          server.ice.unshift(cardToInstall);
+          tempState.logs = addLog(tempState.logs, `Ansel 1.0 효과: ${sourceName}에서 ICE ${cardToInstall.title}를 런이 진행 중인 서버의 가장 안쪽에 설치했습니다.`, 'Corp');
+        } else {
+          let targetServer = 'Remote1';
+          if (cardToInstall.type !== 'Upgrade') {
+            const emptyRemote = Object.keys(tempState.servers).find(k => k.startsWith('Remote') && !tempState.servers[k].root.some(c => c.type === 'Asset' || c.type === 'Agenda'));
+            if (emptyRemote) {
+              targetServer = emptyRemote;
+            } else {
+              targetServer = getNextRemoteName(tempState.servers);
+              tempState.servers[targetServer] = { id: targetServer, name: targetServer, ice: [], root: [] };
+            }
+          } else {
+            const remoteKeys = Object.keys(tempState.servers).filter(k => k.startsWith('Remote'));
+            if (remoteKeys.length > 0) {
+              targetServer = remoteKeys[0];
+            } else {
+              targetServer = 'Remote1';
+              tempState.servers[targetServer] = { id: targetServer, name: targetServer, ice: [], root: [] };
+            }
+          }
+          tempState.servers[targetServer].root.push(cardToInstall);
+          tempState.logs = addLog(tempState.logs, `Ansel 1.0 효과: ${sourceName}에서 ${cardToInstall.title}를 ${targetServer} 서버에 설치했습니다.`, 'Corp');
+        }
+      } else {
+        tempState.logs = addLog(tempState.logs, `Ansel 1.0 효과: HQ와 아카이브에 설치할 수 있는 카드가 없습니다.`, 'System');
+      }
     }
 
     if (runEndedBySub && tempState.run) {
@@ -1163,6 +1921,89 @@ export function continueAfterKarunaSub(state: GameState, jackout: boolean): Game
 }
 
 
+export interface BreakerStats {
+  baseStrength: number;
+  boostAmt: number;
+  boostCost: number;
+  breakCost: number;
+  breakLimit: number;
+}
+
+export function getBreakerStats(state: GameState, breaker: Card): BreakerStats {
+  const breakers = state.runner.rig.filter(c => c.type === 'Program' && c.subTypes.includes('Icebreaker'));
+  const icebreakerCount = breakers.length;
+  
+  let baseStrength = breaker.strength || 0;
+  let boostAmt = 1;
+  let boostCost = 1;
+  let breakCost = 1;
+  let breakLimit = 1;
+
+  switch (breaker.codeName) {
+    case 'cleaver':
+      baseStrength = 3;
+      boostAmt = 1;
+      boostCost = 1;
+      breakCost = 1;
+      breakLimit = 2;
+      break;
+    case 'carmen':
+      baseStrength = 2;
+      boostAmt = 3;
+      boostCost = 2;
+      breakCost = 2;
+      breakLimit = 3;
+      break;
+    case 'unity':
+      baseStrength = 1;
+      boostAmt = icebreakerCount;
+      boostCost = 1;
+      breakCost = 1;
+      breakLimit = 1;
+      break;
+    case 'buzzsaw':
+      baseStrength = 3;
+      boostAmt = 1;
+      boostCost = 3;
+      breakCost = 1;
+      breakLimit = 2;
+      break;
+    case 'echelon':
+      baseStrength = icebreakerCount;
+      boostAmt = 2;
+      boostCost = 3;
+      breakCost = 1;
+      breakLimit = 1;
+      break;
+    case 'marjanah':
+      baseStrength = 1;
+      boostAmt = 1;
+      boostCost = 1;
+      // If there was a successful run this turn
+      const hasSuccessfulRun = state.runner.successfulRunThisTurn;
+      breakCost = hasSuccessfulRun ? 1 : 2;
+      breakLimit = 1;
+      break;
+    case 'mayfly':
+      baseStrength = 1;
+      boostAmt = 1;
+      boostCost = 1;
+      breakCost = 1;
+      breakLimit = 1;
+      break;
+    default:
+      break;
+  }
+
+  return {
+    baseStrength,
+    boostAmt,
+    boostCost,
+    breakCost,
+    breakLimit,
+  };
+}
+
 // 아이스브레이커 임시 힘 상승 액션
 export function boostBreakerStrength(state: GameState, cardId: string): GameState {
   let tempState = cloneState(state);
@@ -1173,12 +2014,9 @@ export function boostBreakerStrength(state: GameState, cardId: string): GameStat
   if (!breaker || breaker.type !== 'Program') return state;
 
   // 브레이커별 힘 상승 스펙
-  let boostAmt = 1;
-  let boostCost = 1;
-  if (breaker.codeName === 'carmen') {
-    boostAmt = 3;
-    boostCost = 2;
-  }
+  const stats = getBreakerStats(tempState, breaker);
+  const boostAmt = stats.boostAmt;
+  const boostCost = stats.boostCost;
 
   const totalAvailableCredits = tempState.runner.credits + (run.overclockCredits || 0);
   if (totalAvailableCredits < boostCost) {
@@ -1344,7 +2182,20 @@ export function resolveAccessCard(state: GameState, trash = false): GameState {
       }, {} as typeof tempState.servers);
     }
 
+    // Tomorrow's Headline 탈취 시 태그 부여
+    if (card.codeName === 'tomorrows_headline') {
+      tempState = giveTag(tempState, 1);
+      tempState.logs = addLog(tempState.logs, `Tomorrow's Headline 탈취 효과로 러너에게 태그 1개를 부여합니다.`, 'Corp');
+    }
+
     tempState = checkVictory(tempState);
+
+    // Shaper: Tao Salonga
+    if (tempState.runner.identity?.codeName === 'tao_salonga_telepresence_magician') {
+      tempState.taoSwapPrevPhase = tempState.phase;
+      tempState.phase = 'tao-swap-ice';
+      tempState.logs = addLog(tempState.logs, `Tao Salonga 효과 격발: 교체할 ICE 2개를 선택해 주십시오.`, 'System');
+    }
 
   } else if (trash && card.trashCost !== undefined && tempState.runner.credits >= card.trashCost) {
     // 러너가 크레딧을 내고 자산/업그레이드를 파괴(Trash)
@@ -1363,7 +2214,17 @@ export function resolveAccessCard(state: GameState, trash = false): GameState {
     }
     
     tempState.corp.discard.push(card);
+    (card as any).faceup = true;
     tempState.logs = addLog(tempState.logs, `Runner가 ${card.trashCost} [Credits]를 지불하고 ${card.title}를 폐기(Trash)했습니다.`, 'Runner');
+
+    // Loup
+    if (tempState.runner.identity?.codeName === 'rene_loup_arcemont_party_animal' && !tempState.runnerUsedLoupThisTurn) {
+      tempState.runner.credits += 1;
+      const drawn = tempState.runner.deck.pop();
+      if (drawn) tempState.runner.hand.push(drawn);
+      tempState.runnerUsedLoupThisTurn = true;
+      tempState.logs = addLog(tempState.logs, `Loup 효과: 턴당 1회, 첫 Trash 시 1 [Credit]을 획득하고 카드 1장을 드로우합니다.`, 'Runner');
+    }
 
   } else {
     // 일반적인 단순 액세스 로그
@@ -1426,7 +2287,28 @@ export function endRun(state: GameState): GameState {
     });
   }
 
-  // Overclock 임시 크레딧 소멸 처리
+  // Zahya Sadeghi
+  if (tempState.runner.identity?.codeName === 'zahya_sadeghi_versatile_smuggler' && !tempState.runnerUsedZahyaThisTurn) {
+    if (success && (run.target === 'HQ' || run.target === 'RD')) {
+      const accessedCount = run.accessedCards.length;
+      if (accessedCount > 0) {
+        tempState.runner.credits += accessedCount;
+        tempState.runnerUsedZahyaThisTurn = true;
+        tempState.logs = addLog(tempState.logs, `Zahya Sadeghi 효과: HQ/R&D 런 성공 종료 시 액세스한 카드 장수(${accessedCount}장)만큼 ${accessedCount} [Credits]를 획득합니다.`, 'Runner');
+      }
+    }
+  }
+
+  // AMAZE Amusements
+  const targetServer = tempState.servers[run.target];
+  if (targetServer) {
+    const hasAmaze = targetServer.root.some(c => c.codeName === 'amaze_amusements' && c.rezzed);
+    const runnerStoleAgendas = run.accessedCards.some(c => c.type === 'Agenda' && tempState.runner.scoreArea.includes(c));
+    if (hasAmaze && runnerStoleAgendas) {
+      tempState = giveTag(tempState, 2);
+      tempState.logs = addLog(tempState.logs, `AMAZE Amusements 효과: 의제를 훔치고 런이 끝나 러너에게 태그 2개를 부여합니다.`, 'Corp');
+    }
+  }
   if (run.overclockCredits !== undefined && run.overclockCredits > 0) {
     tempState.logs = addLog(tempState.logs, `Overclock 임시 크레딧 ${run.overclockCredits}🪙이 런 완료 후 소멸되었습니다.`, 'System');
   }
@@ -1441,6 +2323,7 @@ export function endRun(state: GameState): GameState {
       }
       return true;
     });
+    tempState = refreshRunnerMemory(tempState);
   }
 
   // 런 종료 시 임시 강도 상승치 해제
@@ -1614,6 +2497,34 @@ export function takePennyshaverCredits(state: GameState, cardId: string): GameSt
     tempState.runner.clicks -= 1;
     tempState.runner.credits += creditsTaken;
     tempState.logs = addLog(tempState.logs, `Pennyshaver에서 호스팅된 ${creditsTaken} [Credits]를 수령했습니다. (1 [Click] 소모)`, 'Runner');
+  }
+
+  return tempState;
+}
+
+// Leech 바이러스 카운터 1개 소모하여 조우 중인 ICE 강도 -1 효과 적용
+export function useLeech(state: GameState, cardId: string): GameState {
+  let tempState = cloneState(state);
+  if (!tempState.run || tempState.run.phase !== 'encounter' || !tempState.run.currentIce) {
+    return state;
+  }
+
+  let leechFound = false;
+  tempState.runner.rig = tempState.runner.rig.map(c => {
+    if (c.id === cardId && c.codeName === 'leech' && (c.hostedCounters || 0) > 0) {
+      leechFound = true;
+      return { ...c, hostedCounters: (c.hostedCounters || 0) - 1 };
+    }
+    return c;
+  });
+
+  if (leechFound) {
+    const prevReduction = tempState.run.iceStrengthReduction || 0;
+    tempState.run.iceStrengthReduction = prevReduction + 1;
+    const currentIce = tempState.run.currentIce;
+    const originalStrength = currentIce.strength || 0;
+    const newStrength = Math.max(0, originalStrength - tempState.run.iceStrengthReduction);
+    tempState.logs = addLog(tempState.logs, `Leech 능력 활성화: 바이러스 카운터 1개를 소모하여 조우 중인 ${currentIce.title}의 강도를 1 낮췄습니다. (현재 강도: ${newStrength})`, 'Runner');
   }
 
   return tempState;

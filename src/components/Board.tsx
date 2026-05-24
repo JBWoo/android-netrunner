@@ -8,7 +8,7 @@ interface BoardProps {
   onSelectCard: (cardId: string | null) => void;
   onEndRunnerTurn: () => void;
   onEndCorpTurn: () => void;
-  onBasicAction: (actionType: 'gain-credit' | 'draw-card') => void;
+  onBasicAction: (actionType: 'gain-credit' | 'draw-card' | 'remove-tag') => void;
   onInitiateRun: (serverName: ServerName) => void;
   onAIAction: () => void;
   onReset: () => void;
@@ -42,6 +42,25 @@ export const Board: React.FC<BoardProps> = ({
 
   const isDiscardMode = phase === 'corp-discard' || phase === 'runner-discard';
 
+  const renderHostedPrograms = (iceId: string) => {
+    const hosted = runner.rig.filter(c => c.hostCardId === iceId);
+    if (hosted.length === 0) return null;
+    return (
+      <div className="absolute -top-1.5 -right-1.5 flex flex-col gap-0.5 z-20">
+        {hosted.map(hc => (
+          <div 
+            key={hc.id} 
+            className="bg-[#1c0d12]/95 border border-rose-600 text-rose-400 text-[7px] font-orbitron font-extrabold px-1.5 py-0.5 rounded shadow-[0_0_8px_rgba(225,29,72,0.6)] tracking-tight animate-pulse flex items-center gap-1"
+          >
+            <span className="w-1 h-1 bg-rose-500 rounded-full"></span>
+            {hc.title.toUpperCase()}
+            {hc.hostedCounters !== undefined && hc.hostedCounters > 0 ? ` [${hc.hostedCounters}]` : ''}
+          </div>
+        ))}
+      </div>
+    );
+  };
+
   const handleCardClick = (card: Card) => {
     // 이미 선택된 카드를 다시 클릭하면 선택 해제
     if (selectedCardId === card.id) {
@@ -60,8 +79,17 @@ export const Board: React.FC<BoardProps> = ({
       <div className={`p-4 rounded-xl border transition-all ${isCorpActive ? 'bg-rose-950/5 border-rose-500/30' : 'bg-slate-900/10 border-slate-800'}`}>
         <div className="flex justify-between items-center mb-3">
           <div className="flex items-center gap-3">
-            <span className="font-orbitron font-extrabold text-sm text-rose-500 tracking-wider">
-              [CORP] THE SYNDICATE
+            {corp.identity && (
+              <div 
+                className="relative cursor-pointer hover:scale-110 transition-transform w-[40px] h-[56px] border border-rose-500/40 rounded overflow-hidden shadow-md flex-shrink-0 z-10"
+                onClick={() => onSelectCard(corp.identity!.id)}
+                title={corp.identity.title}
+              >
+                <img src={corp.identity.imageUrl} alt={corp.identity.title} className="w-full h-full object-cover" />
+              </div>
+            )}
+            <span className="font-orbitron font-extrabold text-sm text-rose-500 tracking-wider flex items-center gap-2">
+              [CORP] {corp.identity ? corp.identity.title : 'THE SYNDICATE'}
             </span>
             <div className="flex gap-2 text-xs font-orbitron">
               <span className="bg-slate-950 px-2 py-0.5 rounded border border-slate-800">
@@ -160,15 +188,16 @@ export const Board: React.FC<BoardProps> = ({
                   return (
                     <div 
                       key={ice.id} 
-                      className={`transition-all duration-300 ${isRezzed ? 'w-[128px] h-[90px] flex items-center justify-center scale-95 mx-1.5' : 'w-[90px] h-[128px]'}`}
+                      className={`relative transition-all duration-300 ${isRezzed ? 'w-[128px] h-[90px] flex items-center justify-center scale-95 mx-1.5' : 'w-[90px] h-[128px]'}`}
                     >
+                      {renderHostedPrograms(ice.id)}
                       <div className={isRezzed ? 'rotate-90 origin-center' : ''}>
                         <CardComponent
                           card={ice}
-                          interactive={isCorpPlayerHuman}
+                          interactive={isCorpPlayerHuman || (phase === 'tao-swap-ice' && isRunnerPlayerHuman)}
                           onClick={() => handleCardClick(ice)}
-                          isSelected={selectedCardId === ice.id}
-                          hasActiveSelection={selectedCardId !== null}
+                          isSelected={selectedCardId === ice.id || state?.taoSelectedIceId1 === ice.id}
+                          hasActiveSelection={selectedCardId !== null || state?.taoSelectedIceId1 !== undefined}
                           forceFaceUp={isCorpPlayerHuman}
                         />
                       </div>
@@ -217,15 +246,16 @@ export const Board: React.FC<BoardProps> = ({
                   return (
                     <div 
                       key={ice.id} 
-                      className={`transition-all duration-300 ${isRezzed ? 'w-[128px] h-[90px] flex items-center justify-center scale-95 mx-1.5' : 'w-[90px] h-[128px]'}`}
+                      className={`relative transition-all duration-300 ${isRezzed ? 'w-[128px] h-[90px] flex items-center justify-center scale-95 mx-1.5' : 'w-[90px] h-[128px]'}`}
                     >
+                      {renderHostedPrograms(ice.id)}
                       <div className={isRezzed ? 'rotate-90 origin-center' : ''}>
                         <CardComponent
                           card={ice}
-                          interactive={isCorpPlayerHuman}
+                          interactive={isCorpPlayerHuman || (phase === 'tao-swap-ice' && isRunnerPlayerHuman)}
                           onClick={() => handleCardClick(ice)}
-                          isSelected={selectedCardId === ice.id}
-                          hasActiveSelection={selectedCardId !== null}
+                          isSelected={selectedCardId === ice.id || state?.taoSelectedIceId1 === ice.id}
+                          hasActiveSelection={selectedCardId !== null || state?.taoSelectedIceId1 !== undefined}
                           forceFaceUp={isCorpPlayerHuman}
                         />
                       </div>
@@ -274,15 +304,16 @@ export const Board: React.FC<BoardProps> = ({
                   return (
                     <div 
                       key={ice.id} 
-                      className={`transition-all duration-300 ${isRezzed ? 'w-[128px] h-[90px] flex items-center justify-center scale-95 mx-1.5' : 'w-[90px] h-[128px]'}`}
+                      className={`relative transition-all duration-300 ${isRezzed ? 'w-[128px] h-[90px] flex items-center justify-center scale-95 mx-1.5' : 'w-[90px] h-[128px]'}`}
                     >
+                      {renderHostedPrograms(ice.id)}
                       <div className={isRezzed ? 'rotate-90 origin-center' : ''}>
                         <CardComponent
                           card={ice}
-                          interactive={isCorpPlayerHuman}
+                          interactive={isCorpPlayerHuman || (phase === 'tao-swap-ice' && isRunnerPlayerHuman)}
                           onClick={() => handleCardClick(ice)}
-                          isSelected={selectedCardId === ice.id}
-                          hasActiveSelection={selectedCardId !== null}
+                          isSelected={selectedCardId === ice.id || state?.taoSelectedIceId1 === ice.id}
+                          hasActiveSelection={selectedCardId !== null || state?.taoSelectedIceId1 !== undefined}
                           forceFaceUp={isCorpPlayerHuman}
                         />
                       </div>
@@ -352,15 +383,16 @@ export const Board: React.FC<BoardProps> = ({
                         return (
                           <div 
                             key={ice.id} 
-                            className={`transition-all duration-300 ${isRezzed ? 'w-[128px] h-[90px] flex items-center justify-center scale-95 mx-1.5' : 'w-[90px] h-[128px]'}`}
+                            className={`relative transition-all duration-300 ${isRezzed ? 'w-[128px] h-[90px] flex items-center justify-center scale-95 mx-1.5' : 'w-[90px] h-[128px]'}`}
                           >
+                            {renderHostedPrograms(ice.id)}
                             <div className={isRezzed ? 'rotate-90 origin-center' : ''}>
                               <CardComponent
                                 card={ice}
-                                interactive={isCorpPlayerHuman}
+                                interactive={isCorpPlayerHuman || (phase === 'tao-swap-ice' && isRunnerPlayerHuman)}
                                 onClick={() => handleCardClick(ice)}
-                                isSelected={selectedCardId === ice.id}
-                                hasActiveSelection={selectedCardId !== null}
+                                isSelected={selectedCardId === ice.id || state?.taoSelectedIceId1 === ice.id}
+                                hasActiveSelection={selectedCardId !== null || state?.taoSelectedIceId1 !== undefined}
                                 forceFaceUp={isCorpPlayerHuman}
                               />
                             </div>
@@ -440,8 +472,17 @@ export const Board: React.FC<BoardProps> = ({
       <div className={`p-4 rounded-xl border transition-all ${isRunnerActive ? 'bg-cyan-950/5 border-cyan-500/30' : 'bg-slate-900/10 border-slate-800'}`}>
         <div className="flex justify-between items-center mb-3">
           <div className="flex items-center gap-3">
-            <span className="font-orbitron font-extrabold text-sm text-cyan-400 tracking-wider">
-              [RUNNER] THE CATALYST
+            {runner.identity && (
+              <div 
+                className="relative cursor-pointer hover:scale-110 transition-transform w-[40px] h-[56px] border border-cyan-500/40 rounded overflow-hidden shadow-md flex-shrink-0 z-10"
+                onClick={() => onSelectCard(runner.identity!.id)}
+                title={runner.identity.title}
+              >
+                <img src={runner.identity.imageUrl} alt={runner.identity.title} className="w-full h-full object-cover" />
+              </div>
+            )}
+            <span className="font-orbitron font-extrabold text-sm text-cyan-400 tracking-wider flex items-center gap-2">
+              [RUNNER] {runner.identity ? runner.identity.title : 'THE CATALYST'}
             </span>
             <div className="flex gap-2 text-xs font-orbitron">
               <span className="bg-slate-950 px-2 py-0.5 rounded border border-slate-800">
@@ -455,8 +496,11 @@ export const Board: React.FC<BoardProps> = ({
               </span>
               <span className="bg-slate-950 px-2 py-0.5 rounded border border-slate-800">
                 Memory: <strong className="text-purple-400">
-                  {runner.rig.reduce((sum, r) => sum + (r.memoryCost || 0), 0)} / {runner.rig.some(c => c.codeName === 'pennyshaver') ? 5 : 4}🧠
+                  {runner.memoryUsed} / {runner.memoryLimit}🧠
                 </strong>
+              </span>
+              <span className={`px-2 py-0.5 rounded border transition-all ${runner.tags > 0 ? 'bg-red-950/50 border-red-500 text-red-400 animate-pulse font-extrabold' : 'bg-slate-950 border-slate-800 text-slate-500'}`}>
+                Tags: <strong>{runner.tags}🔴</strong>
               </span>
             </div>
           </div>
@@ -470,6 +514,16 @@ export const Board: React.FC<BoardProps> = ({
               <button onClick={() => onBasicAction('draw-card')} className="neon-button runner py-1 text-[10px]">
                 카드 드로우 (1⚡)
               </button>
+              {runner.tags > 0 && (
+                <button 
+                  onClick={() => onBasicAction('remove-tag')} 
+                  disabled={runner.credits < 2}
+                  className="neon-button runner py-1 text-[10px] border-red-500/50 hover:border-red-400 text-red-400 disabled:opacity-40 disabled:cursor-not-allowed"
+                  title="태그 1개를 제거합니다. (1⚡, 2🪙 소모)"
+                >
+                  태그 제거 (1⚡, 2🪙)
+                </button>
+              )}
               <button 
                 onClick={onEndRunnerTurn} 
                 className={`neon-button py-1 text-[10px] transition-all font-bold ${

@@ -1,11 +1,12 @@
 import type { GameState } from '../game/types';
 import { CardComponent } from './CardComponent';
+import { getBreakerStats } from '../game/engine';
 
 interface RunPanelProps {
   state: GameState;
   onRezIce: (cardId: string) => void;
   onLetPass: () => void;
-  onBreakSub: (subId: string) => void;
+  onBreakSub: (subId: string, breakerId?: string) => void;
   onBreakWithClick: (subId: string) => void;
   onResolveSubs: () => void;
   onJackOut: () => void;
@@ -14,6 +15,7 @@ interface RunPanelProps {
   onPaySkunkworks: (paymentType: 'credits' | 'clicks' | 'jackout') => void;
   onBoostStrength: (cardId: string) => void;
   onContinueAfterKarunaSub: (jackout: boolean) => void;
+  onUseLeech?: (cardId: string) => void;
 }
 
 export const RunPanel: React.FC<RunPanelProps> = ({
@@ -29,6 +31,7 @@ export const RunPanel: React.FC<RunPanelProps> = ({
   onPaySkunkworks,
   onBoostStrength,
   onContinueAfterKarunaSub,
+  onUseLeech,
 }) => {
   const { run, gameMode, runner, corp } = state;
   if (!run) return null;
@@ -37,6 +40,7 @@ export const RunPanel: React.FC<RunPanelProps> = ({
   const isCorpHuman = gameMode === 'corp-human';
   
   const currentIce = run.currentIce;
+  const iceStrength = currentIce ? Math.max(0, (currentIce.strength || 0) - (run.iceStrengthReduction || 0)) : 0;
   const isIceRezzed = currentIce?.rezzed;
 
   // 카드 텍스트 포맷터
@@ -259,7 +263,7 @@ export const RunPanel: React.FC<RunPanelProps> = ({
                 <div className="flex flex-col gap-3">
                   <div className="flex justify-between items-center">
                     <h3 className="font-orbitron font-bold text-white text-sm">
-                      {currentIce.title} ICE 조우중! (강도: {currentIce.strength})
+                      {currentIce.title} ICE 조우중! (강도: {iceStrength})
                     </h3>
                   </div>
 
@@ -296,17 +300,17 @@ export const RunPanel: React.FC<RunPanelProps> = ({
                       ) : (
                         <div className="flex flex-col gap-2 max-h-[140px] overflow-y-auto">
                            {matchingBreakers.map((breaker) => {
-                             // 강도 매칭 검증
-                             const currentBreakerStrength = (breaker.strength || 0) + (run.breakerStrengthBoost?.[breaker.id] || 0);
-                             const strengthDiff = (currentIce.strength || 0) - currentBreakerStrength;
+                             const stats = getBreakerStats(state, breaker);
+                             const currentBreakerStrength = stats.baseStrength + (run.breakerStrengthBoost?.[breaker.id] || 0);
+                             const strengthDiff = iceStrength - currentBreakerStrength;
                              const needStrengthBoost = strengthDiff > 0;
-                             const boostCost = breaker.codeName === 'carmen' ? 2 : 1; // 카르멘은 2크레딧당 +3
-                             const boostAmt = breaker.codeName === 'carmen' ? 3 : 1;
+                             const boostCost = stats.boostCost;
+                             const boostAmt = stats.boostAmt;
                              
                              const totalAvailableCredits = runner.credits + (run.overclockCredits || 0);
                              const canAffordBoost = totalAvailableCredits >= boostCost;
                              
-                             const breakCost = breaker.codeName === 'carmen' ? 2 : 1;
+                             const breakCost = stats.breakCost;
                              const canAffordBreak = totalAvailableCredits >= breakCost;
                              
                              return (
@@ -332,20 +336,9 @@ export const RunPanel: React.FC<RunPanelProps> = ({
                                    {/* 서브루틴 깨기 버튼 */}
                                    <button
                                      onClick={() => {
-                                       // 무작위로 첫 번째 안 깨진 서브루틴 격파
                                        const unbroken = run.subroutines.find(s => !s.broken);
                                        if (unbroken) {
-                                         // Overclock 임시 크레딧 차감 우선
-                                         let remainingCost = breakCost;
-                                         if (run.overclockCredits !== undefined && run.overclockCredits > 0) {
-                                           const usedFromTemp = Math.min(run.overclockCredits, remainingCost);
-                                           run.overclockCredits -= usedFromTemp;
-                                           remainingCost -= usedFromTemp;
-                                         }
-                                         if (remainingCost > 0) {
-                                           runner.credits -= remainingCost;
-                                         }
-                                         onBreakSub(unbroken.id);
+                                         onBreakSub(unbroken.id, breaker.id);
                                        }
                                      }}
                                      disabled={needStrengthBoost || !canAffordBreak || !run.subroutines.some(s => !s.broken)}
@@ -359,6 +352,25 @@ export const RunPanel: React.FC<RunPanelProps> = ({
                            })}
                         </div>
                       )}
+
+                      {(() => {
+                        const leech = runner.rig.find(c => c.codeName === 'leech');
+                        if (!leech || (leech.hostedCounters || 0) <= 0) return null;
+                        return (
+                          <div className="flex justify-between items-center bg-[#1c0d12]/60 p-2 rounded border border-rose-900/40 text-xs mt-1">
+                            <div className="flex flex-col">
+                              <span className="font-bold text-rose-400">Leech 바이러스 가동</span>
+                              <span className="text-[10px] text-slate-400">보유 카운터: {leech.hostedCounters}개</span>
+                            </div>
+                            <button
+                              onClick={() => onUseLeech?.(leech.id)}
+                              className="bg-rose-950/80 hover:bg-rose-900 text-rose-400 border border-rose-800 px-3 py-1.5 rounded text-[10px] cursor-pointer transition-all font-bold font-orbitron"
+                            >
+                              카운터 1개 소모 (ICE 강도 -1)
+                            </button>
+                          </div>
+                        );
+                      })()}
 
                       <div className="flex gap-2 mt-2">
                         <button onClick={onResolveSubs} className="neon-button runner flex-1">

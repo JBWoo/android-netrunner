@@ -27,7 +27,7 @@ export interface Card {
   title: string;
   side: CardSide;
   type: CardType;
-  subTypes: IceSubType[];
+  subTypes: string[];
   cost: number; // 설치 비용 또는 플레이 비용
   strength?: number; // ICE 혹은 아이스브레이커의 강도
   subroutines?: Subroutine[]; // ICE인 경우 서브루틴 목록
@@ -44,6 +44,8 @@ export interface Card {
   advancedCounters: number; // 아젠다/아셋에 놓인 발전 토큰 수
   hostedCredits: number; // Nico Campaign, Telework 등 카드 위 크레딧 수
   hostedCounters: number; // Smartware Distributor 등의 파워/기타 카운터 수
+  faceup?: boolean;
+  hostCardId?: string;
 }
 
 export type ServerName = 'HQ' | 'R&D' | 'Archives' | string; // 'Remote 1', 'Remote 2' 등
@@ -90,6 +92,7 @@ export interface RunState {
   mayflyUsed?: boolean; // Mayfly 사용 여부
   karunaJackoutWindow?: boolean; // Karunā 서브루틴 중간 잭아웃 윈도우 대기 플래그
   resolvedSubroutineIds?: string[]; // 작동 완료된 서브루틴 ID 추적
+  iceStrengthReduction?: number; // 조우 중인 ICE 강도 감소치 (Leech 등)
 }
 
 export type GamePhase =
@@ -101,6 +104,13 @@ export type GamePhase =
   | 'corp-discard'   // 회사 버리기 단계 (손패 제한 초과 시)
   | 'runner-action'  // 러너 행동 단계
   | 'runner-discard' // 러너 버리기 단계 (손패 제한 초과 시)
+  | 'tao-swap-ice'    // Tao Salonga ICE 스왑 대기 단계
+  | 'hb-retrieve-card' // Haas-Bioroid 아카이브 카드 회수 대기 단계
+  | 'public-trail-choice'   // Public Trail 러너 8크레딧 지불 여부 선택 단계
+  | 'wildcat-strike-choice' // Wildcat Strike 러너 6크레딧 수령 vs 4드로우 선택 단계
+  | 'nbn-reality-plus-choice' // NBN: Reality Plus 콥의 2크레딧 수령 vs 2드로우 선택 단계
+  | 'trace-corp-bid'        // Trace 회사 베팅 단계
+  | 'trace-runner-bid'      // Trace 러너 베팅 단계
   | 'game-over';
 
 export type GameMode = 'runner-human' | 'corp-human' | 'ai-vs-ai';
@@ -116,6 +126,7 @@ export interface GameState {
   logs: LogEntry[];
   
   corp: {
+    identity: Card | null;
     credits: number;
     clicks: number;
     deck: Card[];
@@ -127,6 +138,7 @@ export interface GameState {
   };
   
   runner: {
+    identity: Card | null;
     credits: number;
     clicks: number;
     deck: Card[];
@@ -142,6 +154,7 @@ export interface GameState {
     brainDamage: number;
     flatlined: boolean;
     successfulRunThisTurn: boolean;
+    successfulRunLastTurn: boolean; // 직전 러너 턴 성공적인 런 완료 여부
     drawsThisTurn?: number;
     pennyshaverTriggeredThisTurn?: boolean;
   };
@@ -151,4 +164,25 @@ export interface GameState {
   };
   
   run: RunState | null; // 진행 중인 런 정보 (없으면 null)
+  
+  trace?: {
+    base: number;
+    corpBid: number | null;
+    runnerBid: number | null;
+    prevPhase: GamePhase;
+    targetEffect: 'tag' | 'damage';
+    value: number;
+  } | null;
+
+  // Identity 상태 추적
+  runnerUsedLoupThisTurn?: boolean;
+  runnerUsedZahyaThisTurn?: boolean;
+  corpUsedWeylandThisTurn?: boolean;
+  corpUsedNbnThisTurn?: boolean;
+  taoSwapPrevPhase?: GamePhase;
+  taoSelectedIceId1?: string;
+  hbRetrievePrevPhase?: GamePhase;
+  publicTrailPrevPhase?: GamePhase;
+  wildcatStrikePrevPhase?: GamePhase;
+  nbnChoicePrevPhase?: GamePhase;
 }

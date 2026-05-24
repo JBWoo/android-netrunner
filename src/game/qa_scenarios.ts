@@ -1,5 +1,5 @@
-import { createInitialState, executeBasicAction, installCard, paySkunkworksCost, playRunEventCard, initiateRun, resolveAccessCard, scoreAgenda, rezCard, playCard, executeResourceClick, endRunnerTurn, transitionRun, resolveSubroutines, boostBreakerStrength, continueAfterKarunaSub, jackOut, breakSubroutine, takePennyshaverCredits, endRun } from './engine';
-import { createCardInstance } from './cards';
+import { createInitialState, executeBasicAction, installCard, paySkunkworksCost, playRunEventCard, initiateRun, resolveAccessCard, scoreAgenda, rezCard, playCard, executeResourceClick, endRunnerTurn, transitionRun, resolveSubroutines, boostBreakerStrength, continueAfterKarunaSub, jackOut, breakSubroutine, takePennyshaverCredits, endRun, giveTag, swapIce, retrieveCardFromArchives, advanceCard, startRunnerTurn, getBreakerStats, resolveNbnRealityPlusChoice, useLeech, refreshRunnerMemory, resolveTraceRunnerBid, resolveTraceCorpBid } from './engine';
+import { createCardInstance, CARD_DATABASE } from './cards';
 
 function assert(condition: boolean, message: string) {
   if (!condition) {
@@ -624,6 +624,805 @@ runTest('Hardware: Pennyshaver Console credit accumulation and retrieval', () =>
   assert(state.runner.clicks === initialRunnerClicks - 1, `Runner clicks should decrease by 1 (is: ${state.runner.clicks})`);
 });
 
+// ----------------------------------------------------
+// TEST 22: Faction Deck Selection and Identity Initialization
+// ----------------------------------------------------
+runTest('Faction Deck: Verify deck initialization and Identity attachment for each faction', () => {
+  // 1. Shaper (Tao) vs Jinteki (Restoring Humanity)
+  let state = createInitialState('runner-human', 'medium', 'tao', 'jinteki');
+  assert(state.runner.identity !== null, 'Runner identity should not be null');
+  assert(state.runner.identity!.codeName === 'tao_salonga_telepresence_magician', 'Runner identity should be Tao Salonga');
+  assert(state.corp.identity !== null, 'Corp identity should not be null');
+  assert(state.corp.identity!.codeName === 'jinteki_restoring_humanity', 'Corp identity should be Jinteki');
+  
+  // 2. Anarch (Loup) vs Haas-Bioroid (Precision Design)
+  state = createInitialState('runner-human', 'medium', 'loup', 'haas');
+  assert(state.runner.identity!.codeName === 'rene_loup_arcemont_party_animal', 'Runner identity should be Rene Loup');
+  assert(state.corp.identity!.codeName === 'haas_bioroid_precision_design', 'Corp identity should be Haas-Bioroid');
+  
+  // 3. Criminal (Zahya) vs NBN (Reality Plus)
+  state = createInitialState('runner-human', 'medium', 'zahya', 'nbn');
+  assert(state.runner.identity!.codeName === 'zahya_sadeghi_versatile_smuggler', 'Runner identity should be Zahya');
+  assert(state.corp.identity!.codeName === 'nbn_reality_plus', 'Corp identity should be NBN');
+  
+  // 4. Weyland (Built to Last)
+  state = createInitialState('runner-human', 'medium', 'tao', 'weyland');
+  assert(state.corp.identity!.codeName === 'weyland_consortium_built_to_last', 'Corp identity should be Weyland');
+});
+
+// ----------------------------------------------------
+// TEST 23: Identity - Jinteki Restoring Humanity
+// ----------------------------------------------------
+runTest('Identity: Jinteki Restoring Humanity gains credit if facedown card in Archives', () => {
+  let state = createInitialState('runner-human', 'medium', 'tao', 'jinteki');
+  state.corp.credits = 5;
+  
+  // 1. startRunnerTurn with empty Archives -> no credit gain
+  state = startRunnerTurn(state);
+  assert(state.corp.credits === 5, `Jinteki Restoring Humanity should not gain credits if Archives is empty (credits: ${state.corp.credits})`);
+  
+  // 2. Add a facedown card to Archives and start runner turn
+  const card = createCardInstance('hedge_fund');
+  (card as any).faceup = false;
+  state.corp.discard.push(card);
+  
+  state.corp.credits = 5;
+  state = startRunnerTurn(state);
+  assert(state.corp.credits === 6, `Jinteki Restoring Humanity should gain 1 credit if facedown card is in Archives (credits: ${state.corp.credits})`);
+});
+
+// ----------------------------------------------------
+// TEST 24: Identity - Weyland Built to Last
+// ----------------------------------------------------
+runTest('Identity: Weyland Built to Last gains 2 credits on first advancement counter of a card', () => {
+  let state = createInitialState('runner-human', 'medium', 'tao', 'weyland');
+  state.activePlayer = 'Corp';
+  state.phase = 'corp-action';
+  state.corp.clicks = 3;
+  state.corp.credits = 10;
+  
+  const agenda = createCardInstance('offworld_office');
+  state.corp.hand.push(agenda);
+  
+  state = installCard(state, agenda.id, 'New Remote');
+  
+  const remoteKeys = Object.keys(state.servers).filter(k => k.startsWith('Remote'));
+  assert(remoteKeys.length > 0, 'A Remote server should have been created');
+  const remoteKey = remoteKeys[0];
+  const installedAgenda = state.servers[remoteKey].root[0];
+  assert(installedAgenda !== undefined, 'Agenda should be installed in the Remote server');
+  
+  // 1. Advance the card for the first time
+  const preCredits = state.corp.credits; // should be 10 (since installing is free of credit cost, but uses click)
+  state = advanceCard(state, installedAgenda.id);
+  
+  // Built to last gives +2 credits. Net cost: -1 credit to advance + 2 credits from Built to Last = +1 credit.
+  assert(state.corp.credits === preCredits + 1, `Weyland Built to Last should gain 2 credits on first advancement (credits: ${state.corp.credits}, was: ${preCredits})`);
+  
+  // 2. Advance the card a second time -> no extra credit
+  const preCredits2 = state.corp.credits;
+  state = advanceCard(state, installedAgenda.id);
+  // Net cost: -1 credit. No Built to Last trigger.
+  assert(state.corp.credits === preCredits2 - 1, `Weyland Built to Last should not trigger on second advancement (credits: ${state.corp.credits}, was: ${preCredits2})`);
+});
+
+// ----------------------------------------------------
+// TEST 25: Identity - NBN Reality Plus
+// ----------------------------------------------------
+runTest('Identity: NBN Reality Plus gains 2 credits on first tag of the turn', () => {
+  let state = createInitialState('runner-human', 'medium', 'zahya', 'nbn');
+  state.corp.credits = 5;
+  state.corpUsedNbnThisTurn = false;
+  
+  // 1. First tag
+  state = giveTag(state, 1);
+  assert(state.corp.credits === 7, `NBN: Reality Plus should gain 2 credits (credits: ${state.corp.credits})`);
+  assert(state.corpUsedNbnThisTurn === true, 'NBN turn-once flag should be true');
+  
+  // 2. Second tag in same turn -> no gain
+  state = giveTag(state, 1);
+  assert(state.corp.credits === 7, `NBN: Reality Plus should not gain credits on second tag of the turn (credits: ${state.corp.credits})`);
+});
+
+// ----------------------------------------------------
+// TEST 26: Identity - Loup (Anarch)
+// ----------------------------------------------------
+runTest('Identity: Loup gains 1 credit and draws 1 card on first card trash of the turn', () => {
+  let state = createInitialState('runner-human', 'medium', 'loup', 'jinteki');
+  state.activePlayer = 'Runner';
+  state.phase = 'runner-action';
+  state.runner.clicks = 4;
+  state.runner.credits = 10;
+  
+  const drawCard = createCardInstance('sure_gamble');
+  state.runner.deck = [drawCard];
+  const initialHandSize = state.runner.hand.length;
+  
+  const asset = createCardInstance('nico_campaign');
+  state.corp.hand = [asset];
+  
+  state = initiateRun(state, 'HQ');
+  state = transitionRun(state); // approach -> breach (no ICE)
+  assert(state.run !== null && state.run.phase === 'breach', `Run phase should be 'breach' (is: ${state.run?.phase})`);
+  
+  state = resolveAccessCard(state, true); // trash = true
+  
+  // Loup should trigger:
+  // Nico Campaign costs 2 credits to trash. So credits should be 10 - 2 (trash cost) + 1 (Loup) = 9.
+  assert(state.runner.credits === 9, `Loup should have 9 credits after trashing (is: ${state.runner.credits})`);
+  // Loup should draw 1 card. Hand size should be initialHandSize + 1.
+  assert(state.runner.hand.length === initialHandSize + 1, `Loup should draw 1 card (hand size: ${state.runner.hand.length})`);
+  assert(state.runner.hand.some(c => c.id === drawCard.id), 'Drawn card should be Sure Gamble');
+  
+  // 2. Trash another card in the same turn -> no gain
+  state = endRun(state);
+  state.runner.credits = 10;
+  
+  const asset2 = createCardInstance('urtica_cipher');
+  state.corp.hand = [asset2];
+  
+  state = initiateRun(state, 'HQ');
+  state = transitionRun(state);
+  state = resolveAccessCard(state, true);
+  
+  assert(state.runner.credits === 8, `Second trash in same turn should not trigger Loup (credits: ${state.runner.credits})`);
+});
+
+// ----------------------------------------------------
+// TEST 27: Identity - Zahya (Criminal)
+// ----------------------------------------------------
+runTest('Identity: Zahya gains credits equal to accessed cards on successful run on HQ or R&D', () => {
+  let state = createInitialState('runner-human', 'medium', 'zahya', 'jinteki');
+  state.activePlayer = 'Runner';
+  state.phase = 'runner-action';
+  state.runner.clicks = 4;
+  state.runner.credits = 10;
+  state.runnerUsedZahyaThisTurn = false;
+  
+  const asset = createCardInstance('nico_campaign');
+  const agenda = createCardInstance('offworld_office');
+  state.corp.hand = [asset, agenda];
+  
+  state = initiateRun(state, 'HQ');
+  state = transitionRun(state);
+  
+  const accessedCount = state.run!.accessedCards.length;
+  assert(accessedCount === 1, `HQ should access 1 card by default (accessedCount: ${accessedCount})`);
+  
+  state = resolveAccessCard(state, false);
+  
+  // When run ends, Zahya should trigger and award accessedCount credits (1 credit).
+  // Credits should be 10 + 1 = 11.
+  assert(state.runner.credits === 11, `Zahya should gain credits equal to accessed count (credits: ${state.runner.credits})`);
+  assert(state.runnerUsedZahyaThisTurn === true, 'Zahya flag should be true');
+});
+
+// ----------------------------------------------------
+// TEST 28: Identity - Tao Salonga (Shaper)
+// ----------------------------------------------------
+runTest('Identity: Tao Salonga triggers ICE swap phase when stealing an agenda', () => {
+  let state = createInitialState('runner-human', 'medium', 'tao', 'jinteki');
+  state.activePlayer = 'Runner';
+  state.phase = 'runner-action';
+  state.runner.clicks = 4;
+  state.runner.credits = 10;
+  
+  const ice1 = createCardInstance('palisade');
+  const ice2 = createCardInstance('whitespace');
+  state.servers.HQ.ice = [ice1];
+  state.servers.RD.ice = [ice2];
+  
+  const agenda = createCardInstance('offworld_office');
+  state.corp.hand = [agenda];
+  
+  state = initiateRun(state, 'HQ');
+  state = transitionRun(state);
+  
+  state = resolveAccessCard(state, false);
+  assert(state.phase === 'tao-swap-ice', `Phase should transition to 'tao-swap-ice' (is: ${state.phase})`);
+  
+  state = swapIce(state, ice1.id, ice2.id);
+  
+  assert(state.servers.HQ.ice[0].id === ice2.id, 'HQ ICE should now be Whitespace');
+  assert(state.servers.RD.ice[0].id === ice1.id, 'R&D ICE should now be Palisade');
+  
+  assert(state.phase === 'runner-action', `Phase should restore to 'runner-action' (is: ${state.phase})`);
+});
+
+// ----------------------------------------------------
+// TEST 29: Identity - Haas-Bioroid Precision Design
+// ----------------------------------------------------
+runTest('Identity: Haas-Bioroid Precision Design hand limit and score card retrieval', () => {
+  let state = createInitialState('runner-human', 'medium', 'loup', 'haas');
+  assert(state.corp.maximumHandSize === 6, `Haas-Bioroid maximum hand size should be 6 (is: ${state.corp.maximumHandSize})`);
+  
+  state.activePlayer = 'Corp';
+  state.phase = 'corp-action';
+  state.corp.clicks = 3;
+  state.corp.credits = 10;
+  
+  const operation = createCardInstance('hedge_fund');
+  state.corp.discard.push(operation);
+  
+  const agenda = createCardInstance('offworld_office');
+  state.corp.hand.push(agenda);
+  state = installCard(state, agenda.id, 'New Remote');
+  
+  const remoteKeys = Object.keys(state.servers).filter(k => k.startsWith('Remote'));
+  const remoteKey = remoteKeys[0];
+  const installedAgenda = state.servers[remoteKey].root[0];
+  
+  installedAgenda.advancedCounters = 4;
+  
+  state = scoreAgenda(state, installedAgenda.id);
+  
+  assert(state.phase === 'hb-retrieve-card', `Phase should transition to 'hb-retrieve-card' (is: ${state.phase})`);
+  
+  state = retrieveCardFromArchives(state, operation.id);
+  
+  assert(state.corp.hand.some(c => c.id === operation.id), 'Retrieved card should be in hand');
+  assert(!state.corp.discard.some(c => c.id === operation.id), 'Retrieved card should not be in discard');
+  
+  assert(state.phase === 'corp-action', `Phase should restore to 'corp-action' (is: ${state.phase})`);
+});
+
+// TEST 30: Program - Marjanah: break cost changes if successful run occurred
+runTest('Program: Marjanah successful run break cost discount', () => {
+  let state = createInitialState('runner-human', 'medium', 'tao', 'haas');
+  state.activePlayer = 'Runner';
+  state.phase = 'runner-action';
+  state.runner.clicks = 4;
+  state.runner.credits = 10;
+  
+  // Install Marjanah
+  const marjanah = createCardInstance('marjanah');
+  state.runner.hand.push(marjanah);
+  state = installCard(state, marjanah.id, 'rig');
+  const installedMarjanah = state.runner.rig.find(c => c.codeName === 'marjanah')!;
+  
+  // 1. Without successful run, check stats -> breakCost should be 2
+  const statsNoRun = getBreakerStats(state, installedMarjanah);
+  assert(statsNoRun.breakCost === 2, `Marjanah break cost should be 2 without successful run (is: ${statsNoRun.breakCost})`);
+  
+  // 2. Set successfulRunThisTurn to true, check stats -> breakCost should be 1
+  state.runner.successfulRunThisTurn = true;
+  const statsRun = getBreakerStats(state, installedMarjanah);
+  assert(statsRun.breakCost === 1, `Marjanah break cost should be 1 after successful run (is: ${statsRun.breakCost})`);
+});
+
+// TEST 31: Program - Buzzsaw: boost strength & multi subroutine break
+runTest('Program: Buzzsaw boost and multi subroutine break', () => {
+  let state = createInitialState('runner-human', 'medium', 'tao', 'haas');
+  state.activePlayer = 'Runner';
+  state.phase = 'runner-action';
+  state.runner.clicks = 4;
+  state.runner.credits = 14;
+  
+  // Install Buzzsaw
+  const buzzsaw = createCardInstance('buzzsaw');
+  state.runner.hand.push(buzzsaw);
+  state = installCard(state, buzzsaw.id, 'rig');
+  const installedBuzzsaw = state.runner.rig.find(c => c.codeName === 'buzzsaw')!;
+  
+  // Get stats
+  const stats = getBreakerStats(state, installedBuzzsaw);
+  assert(stats.baseStrength === 3, 'Buzzsaw base strength should be 3');
+  assert(stats.boostAmt === 1, 'Buzzsaw boostAmt should be 1');
+  assert(stats.boostCost === 3, 'Buzzsaw boostCost should be 3');
+  assert(stats.breakCost === 1, 'Buzzsaw breakCost should be 1');
+  assert(stats.breakLimit === 2, 'Buzzsaw breakLimit should be 2');
+  
+  // Setup encounter with a Code Gate ICE with 2 subroutines
+  const ice = createCardInstance('diviner'); // Code Gate, strength 3, 1 sub
+  ice.subroutines!.push({ id: 'diviner_sub_2', text: 'Second subroutine', broken: false, effectType: 'end-run' });
+  state.servers.HQ.ice.push(ice);
+  state.servers.HQ.ice[0].rezzed = true;
+  
+  state = initiateRun(state, 'HQ');
+  state = transitionRun(state); // approach -> encounter
+  
+  // Break code gate subroutines using Buzzsaw (breaks 2 subs for 1 credit)
+  state = breakSubroutine(state, ice.subroutines![0].id, installedBuzzsaw.id);
+  assert(state.run!.subroutines[0].broken === true, 'First subroutine should be broken');
+  assert(state.run!.subroutines[1].broken === true, 'Second subroutine should be broken because Buzzsaw breaks 2 at once');
+  assert(state.runner.credits === 9, `Runner should have spent 1 credit breaking (has: ${state.runner.credits})`);
+});
+
+// TEST 32: Program - Echelon: passive strength and boost cost
+runTest('Program: Echelon strength scaling and boost cost', () => {
+  let state = createInitialState('runner-human', 'medium', 'tao', 'haas');
+  state.activePlayer = 'Runner';
+  state.phase = 'runner-action';
+  state.runner.clicks = 4;
+  state.runner.credits = 20;
+  
+  // Install Echelon and Cleaver to have 2 icebreakers
+  const echelon = createCardInstance('echelon');
+  const cleaver = createCardInstance('cleaver');
+  state.runner.hand.push(echelon, cleaver);
+  state = installCard(state, echelon.id, 'rig');
+  state = installCard(state, cleaver.id, 'rig');
+  
+  const installedEchelon = state.runner.rig.find(c => c.codeName === 'echelon')!;
+  
+  // Stats check: base strength should scale with icebreaker count (2 installed)
+  const stats = getBreakerStats(state, installedEchelon);
+  assert(stats.baseStrength === 2, `Echelon strength should scale with icebreakers count (is: ${stats.baseStrength})`);
+  assert(stats.boostAmt === 2, 'Echelon boostAmt should be 2');
+  assert(stats.boostCost === 3, 'Echelon boostCost should be 3');
+});
+
+// TEST 33: Program - Unity: boost strength based on installed breakers
+runTest('Program: Unity boost strength scaling', () => {
+  let state = createInitialState('runner-human', 'medium', 'tao', 'haas');
+  state.activePlayer = 'Runner';
+  state.phase = 'runner-action';
+  state.runner.clicks = 4;
+  state.runner.credits = 20;
+  
+  // Install Unity, Cleaver, and Mayfly (3 breakers)
+  const unity = createCardInstance('unity');
+  const cleaver = createCardInstance('cleaver');
+  const mayfly = createCardInstance('mayfly');
+  state.runner.hand.push(unity, cleaver, mayfly);
+  state = installCard(state, unity.id, 'rig');
+  state = installCard(state, cleaver.id, 'rig');
+  state = installCard(state, mayfly.id, 'rig');
+  
+  const installedUnity = state.runner.rig.find(c => c.codeName === 'unity')!;
+  
+  // Stats check: boostAmt should scale with icebreaker count (3 installed)
+  const stats = getBreakerStats(state, installedUnity);
+  assert(stats.boostAmt === 3, `Unity boostAmt should scale with icebreakers count including Mayfly (is: ${stats.boostAmt})`);
+});
+
+// TEST 34: Identity - Jinteki Restoring Humanity details
+runTest('Identity: Jinteki Restoring Humanity facedown flip on Archives breach', () => {
+  let state = createInitialState('runner-human', 'medium', 'tao', 'jinteki');
+  state.corp.credits = 5;
+  
+  // Add a facedown card to Archives
+  const card = createCardInstance('hedge_fund');
+  (card as any).faceup = false;
+  state.corp.discard.push(card);
+  
+  // Start runner turn -> Corp should gain 1 credit (now 6)
+  state = startRunnerTurn(state);
+  assert(state.corp.credits === 6, `Corp should gain credit from facedown card (is: ${state.corp.credits})`);
+  
+  // Run on Archives
+  state = initiateRun(state, 'Archives');
+  state = transitionRun(state); // approach -> breach (no ice)
+  
+  // Breach: all cards in Archives should be flipped face up
+  assert(state.corp.discard[0].faceup === true, 'Facedown card in Archives should be flipped faceup on breach');
+  
+  // Start runner turn again -> no credit gain because card is faceup now
+  state.corp.credits = 5;
+  state = startRunnerTurn(state);
+  assert(state.corp.credits === 5, 'Corp should not gain credit since card is now faceup');
+});
+
+// TEST 35: Identity - NBN Reality Plus: tag trigger choice
+runTest('Identity: NBN Reality Plus tag trigger choice', () => {
+  let state = createInitialState('corp-human', 'medium', 'tao', 'nbn'); // human corp
+  state.corp.credits = 5;
+  state.phase = 'setup';
+  
+  // Give runner a tag -> should trigger nbn-reality-plus-choice phase
+  state = giveTag(state, 1);
+  assert(state.phase === 'nbn-reality-plus-choice', `Phase should be nbn-reality-plus-choice (is: ${state.phase})`);
+  
+  // Resolve choosing credits
+  state = resolveNbnRealityPlusChoice(state, 'credits');
+  assert(state.corp.credits === 7, `Corp should have gained 2 credits (is: ${state.corp.credits})`);
+  assert(state.phase === 'setup', `Phase should restore (is: ${state.phase})`);
+});
+
+// TEST 36: Resource - Smartware Distributor: clicks and drip
+runTest('Resource: Smartware Distributor click charge and drip', () => {
+  let state = createInitialState('runner-human', 'medium', 'tao', 'haas');
+  state.activePlayer = 'Runner';
+  state.phase = 'runner-action';
+  state.runner.clicks = 4;
+  state.runner.credits = 5;
+  
+  // Install Smartware Distributor
+  const sd = createCardInstance('smartware_distributor');
+  state.runner.hand.push(sd);
+  state = installCard(state, sd.id, 'rig');
+  
+  const installedSd = state.runner.rig.find(c => c.codeName === 'smartware_distributor')!;
+  assert(installedSd.hostedCredits === 0 || !installedSd.hostedCredits, 'Should start with 0 credits');
+  
+  // Click Smartware Distributor to charge 3 credits
+  state.runner.clicks = 4;
+  state = executeResourceClick(state, installedSd.id);
+  const updatedSd = state.runner.rig.find(c => c.codeName === 'smartware_distributor')!;
+  assert(updatedSd.hostedCredits === 3, `Should have charged 3 credits (is: ${updatedSd.hostedCredits})`);
+  assert(state.runner.clicks === 3, 'Should have used 1 click');
+
+  // Charge it 4 more times to exceed 12 credits (total 15 credits)
+  for (let i = 0; i < 4; i++) {
+    state.runner.clicks = 4;
+    state = executeResourceClick(state, installedSd.id);
+  }
+  const superChargedSd = state.runner.rig.find(c => c.codeName === 'smartware_distributor')!;
+  assert(superChargedSd.hostedCredits === 15, `Should be able to exceed 12 credits (is: ${superChargedSd.hostedCredits})`);
+  
+  // Start Runner Turn -> should drip 1 credit
+  state.runner.credits = 5;
+  state = startRunnerTurn(state);
+  const finalSd = state.runner.rig.find(c => c.codeName === 'smartware_distributor')!;
+  assert(finalSd.hostedCredits === 14, `Should have dripped 1 credit, leaving 14 (is: ${finalSd.hostedCredits})`);
+  assert(state.runner.credits === 6, `Runner should have gained 1 drip credit (is: ${state.runner.credits})`);
+});
+
+// TEST 37: Corp Operation - Public Trail trace threat
+runTest('Corp Operation: Public Trail successful run requirement and choice', () => {
+  let state = createInitialState('runner-human', 'medium', 'tao', 'haas');
+  state.activePlayer = 'Corp';
+  state.phase = 'corp-action';
+  state.corp.clicks = 3;
+  state.corp.credits = 10;
+  
+  const publicTrail = createCardInstance('public_trail');
+  state.corp.hand.push(publicTrail);
+  
+  // 1. Play without runner successful run last turn -> should fail prerequisite
+  state.runner.successfulRunLastTurn = false;
+  state = playCard(state, publicTrail.id);
+  assert(state.corp.hand.some(c => c.codeName === 'public_trail'), 'Public Trail should not be played if prerequisite fails');
+  
+  // 2. Play with successful run last turn -> should succeed, transition to trace bidding
+  state.runner.successfulRunLastTurn = true;
+  state.runner.credits = 10;
+  state = playCard(state, publicTrail.id);
+  assert(state.phase === 'trace-runner-bid', `Should transition to trace-runner-bid phase (is: ${state.phase})`);
+  
+  // Runner pays 7 credits (matching trace strength 4 + 3 = 7) to prevent tag
+  state = resolveTraceRunnerBid(state, 7);
+  assert(state.runner.credits === 3, `Runner should have spent 7 credits (is: ${state.runner.credits})`);
+  assert(state.runner.tags === 0, 'Runner tags should be 0');
+
+  // 3. Play again and let trace succeed (Runner bids 0)
+  state.corp.hand = [publicTrail];
+  state.corp.clicks = 3;
+  state.corp.credits = 10;
+  state = playCard(state, publicTrail.id);
+  assert(state.phase === 'trace-runner-bid', `Should transition to trace-runner-bid phase (is: ${state.phase})`);
+  
+  // Runner bids 0
+  state = resolveTraceRunnerBid(state, 0);
+  assert(state.runner.tags === 1, 'Runner should have acquired 1 tag');
+});
+
+// TEST 38: Corp Operation - Retribution program destruction
+runTest('Corp Operation: Retribution program destruction', () => {
+  let state = createInitialState('runner-human', 'medium', 'tao', 'haas');
+  state.activePlayer = 'Corp';
+  state.phase = 'corp-action';
+  state.corp.clicks = 3;
+  state.corp.credits = 10;
+  
+  // Install a program for runner
+  const cleaver = createCardInstance('cleaver'); // cost 3
+  state.runner.rig.push(cleaver);
+  
+  const retribution = createCardInstance('retribution');
+  state.corp.hand.push(retribution);
+  
+  // 1. Play without tag -> should fail prerequisite
+  state.runner.tags = 0;
+  state = playCard(state, retribution.id);
+  assert(state.corp.hand.some(c => c.codeName === 'retribution'), 'Retribution should not be played without tag');
+  
+  // 2. Play with tag -> should destroy program
+  state.runner.tags = 1;
+  state = playCard(state, retribution.id);
+  assert(state.runner.rig.length === 0, 'Cleaver should have been destroyed');
+  assert(state.runner.discard.some(c => c.codeName === 'cleaver'), 'Cleaver should be in heap/discard');
+});
+
+// TEST 39: Corp Operation - Predictive Planogram tag condition
+runTest('Corp Operation: Predictive Planogram tag condition benefits', () => {
+  let state = createInitialState('runner-human', 'medium', 'tao', 'haas');
+  state.activePlayer = 'Corp';
+  state.phase = 'corp-action';
+  state.corp.clicks = 3;
+  state.corp.credits = 5;
+  state.corp.hand = [];
+  
+  // Add some deck cards to draw
+  state.corp.deck = [
+    createCardInstance('hedge_fund'),
+    createCardInstance('hedge_fund'),
+    createCardInstance('hedge_fund'),
+  ];
+  
+  const planogram = createCardInstance('predictive_planogram');
+  
+  // 1. Without tag -> should draw 3 cards (because hand is empty, AI chooses draw)
+  state.corp.hand.push(planogram);
+  state = playCard(state, planogram.id);
+  assert(state.corp.hand.length === 3, `Should have drawn 3 cards (has: ${state.corp.hand.length})`);
+  assert(state.corp.credits === 5, 'Should not have gained credits');
+  
+  // 2. With tag -> should do both
+  const planogram2 = createCardInstance('predictive_planogram');
+  state.corp.hand = [planogram2];
+  state.runner.tags = 1;
+  state.corp.credits = 5;
+  state.corp.clicks = 3;
+  state.corp.deck = [
+    createCardInstance('hedge_fund'),
+    createCardInstance('hedge_fund'),
+    createCardInstance('hedge_fund'),
+  ];
+  state = playCard(state, planogram2.id);
+  assert(state.corp.credits === 8, `Should have gained 3 credits (has: ${state.corp.credits})`);
+  assert(state.corp.hand.length === 3, `Should have drawn 3 cards (has: ${state.corp.hand.length})`);
+});
+
+// TEST 40: Corp Agenda - Orbital Superiority meat damage
+runTest('Corp Agenda: Orbital Superiority meat damage', () => {
+  let state = createInitialState('runner-human', 'medium', 'tao', 'haas');
+  state.activePlayer = 'Corp';
+  state.phase = 'corp-action';
+  state.runner.tags = 1;
+  
+  // Fill runner hand with 5 cards
+  state.runner.hand = [
+    createCardInstance('sure_gamble'),
+    createCardInstance('sure_gamble'),
+    createCardInstance('sure_gamble'),
+    createCardInstance('sure_gamble'),
+    createCardInstance('sure_gamble'),
+  ];
+  
+  const orbital = createCardInstance('orbital_superiority');
+  state.servers.Remote1 = { id: 'Remote1', name: 'Remote1', ice: [], root: [orbital] };
+  orbital.advancedCounters = 4;
+  
+  // Score it
+  state = scoreAgenda(state, orbital.id);
+  
+  // Should inflict 4 meat damage, discarding 4 cards
+  assert(state.runner.hand.length === 1, `Runner should have only 1 card left (has: ${state.runner.hand.length})`);
+  assert(state.runner.discard.length === 4, `Runner discard should have 4 cards (has: ${state.runner.discard.length})`);
+});
+
+// TEST 41: Program - Leech: hosting on ICE, central run counter gain, and strength reduction
+runTest('Program: Leech hosting on ICE, counter accumulation, and strength reduction', () => {
+  let state = createInitialState('runner-human', 'medium', 'tao', 'haas');
+  state.activePlayer = 'Runner';
+  state.phase = 'runner-action';
+  state.runner.clicks = 4;
+  state.runner.credits = 10;
+
+  // Setup an ICE on HQ
+  const ice = createCardInstance('diviner'); // Code Gate, strength 3
+  state.servers.HQ.ice.push(ice);
+  state.servers.HQ.ice[0].rezzed = true;
+
+  // Install Leech hosting on the HQ ICE
+  const leech = createCardInstance('leech');
+  state.runner.hand.push(leech);
+  state = installCard(state, leech.id, ice.id); // Install & host on ice.id
+
+  const installedLeech = state.runner.rig.find(c => c.codeName === 'leech')!;
+  assert(installedLeech.hostCardId === ice.id, 'Leech should be hosted on the HQ ICE');
+  assert(installedLeech.hostedCounters === 0 || !installedLeech.hostedCounters, 'Should start with 0 virus counters');
+
+  // Initiate run on HQ and succeed (Central Server) to gain 1 virus counter
+  state = initiateRun(state, 'HQ');
+  state = transitionRun(state);
+  state = transitionRun(state);
+  state.run!.phase = 'success';
+  state = transitionRun(state); // success -> breach, which charges Leech
+
+  const chargedLeech = state.runner.rig.find(c => c.codeName === 'leech')!;
+  assert(chargedLeech.hostedCounters === 1, `Leech should have accumulated 1 virus counter (is: ${chargedLeech.hostedCounters})`);
+
+  // Now, initiate another run to encounter the ICE, and use Leech's ability
+  state = initiateRun(state, 'HQ');
+  state = transitionRun(state); // approach -> encounter
+  
+  // Encountering Diviner (strength 3). Use Leech to reduce strength.
+  state = useLeech(state, chargedLeech.id);
+  
+  // Check that Leech counter is consumed and ICE strength reduction is recorded
+  const usedLeech = state.runner.rig.find(c => c.codeName === 'leech')!;
+  assert(usedLeech.hostedCounters === 0, 'Leech counter should be consumed');
+  assert(state.run!.iceStrengthReduction === 1, 'ICE strength reduction should be 1');
+});
+
+// TEST 42: Faction Identity card images and info 전수 검증
+runTest('Identity: Verify all 9 identities descriptions and image URLs', () => {
+  const ids = [
+    { code: 'the_catalyst', img: '30076' },
+    { code: 'rene_loup_arcemont_party_animal', img: '30001' },
+    { code: 'zahya_sadeghi_versatile_smuggler', img: '30010' },
+    { code: 'tao_salonga_telepresence_magician', img: '30019' },
+    { code: 'the_syndicate', img: '30077' },
+    { code: 'haas_bioroid_precision_design', img: '30035' },
+    { code: 'jinteki_restoring_humanity', img: '30043' },
+    { code: 'nbn_reality_plus', img: '30051' },
+    { code: 'weyland_consortium_built_to_last', img: '30059' }
+  ];
+
+  for (const info of ids) {
+    const card = CARD_DATABASE[info.code];
+    assert(card !== undefined, `Identity card ${info.code} must exist in database`);
+    assert(card.type === 'Identity', `Card ${info.code} must be of type Identity`);
+    
+    const match = (card.imageUrl || '').match(/\/(\d+)\.jpg$/);
+    const code = match ? match[1] : '';
+    assert(code === info.img, `Identity ${info.code} image URL must end with ${info.img}.jpg (got: ${card.imageUrl || 'undefined'})`);
+  }
+});
+
+// TEST 43: Console and Hardware Memory limit recalculation
+runTest('Memory: Installing/Trashing consoles & hardware correctly recalculates memoryLimit and prevents program overflow', () => {
+  let state = createInitialState('ai-vs-ai', 'medium');
+  state.activePlayer = 'Runner';
+  state.runner.clicks = 4;
+  state.runner.credits = 30; // abundant credits
+  state.phase = 'runner-action';
+  
+  // Clear runner hand and rig
+  state.runner.hand = [];
+  state.runner.rig = [];
+  state = refreshRunnerMemory(state);
+  
+  // Create card instances
+  const t400 = createCardInstance('t400_memory_diamond');
+  const pennyshaver = createCardInstance('pennyshaver');
+  const program1 = createCardInstance('unity'); // cost: 3, memoryCost: 1
+  const program2 = createCardInstance('cleaver'); // cost: 3, memoryCost: 1
+  const program3 = createCardInstance('marjanah'); // cost: 0, memoryCost: 1
+  const program4 = createCardInstance('carmen'); // cost: 5, memoryCost: 1
+  const programExtra = createCardInstance('unity'); // cost: 3, memoryCost: 1
+  
+  // Check default limits
+  assert(state.runner.memoryLimit === 4, 'Base memoryLimit should be 4');
+  assert(state.runner.memoryUsed === 0, 'Base memoryUsed should be 0');
+  
+  // Install T400 Memory Diamond (Hardware)
+  state.runner.hand.push(t400);
+  state = installCard(state, t400.id, 'New Remote'); // server name is ignored for runner hardware
+  assert(state.runner.memoryLimit === 5, 'Memory limit should increase to 5 after T400');
+  
+  // Install Pennyshaver (Console Hardware)
+  state.runner.hand.push(pennyshaver);
+  state = installCard(state, pennyshaver.id, 'New Remote');
+  assert(state.runner.memoryLimit === 6, 'Memory limit should increase to 6 after Pennyshaver');
+  
+  // Install 5 programs (total 5 MU)
+  const programs = [program1, program2, program3, program4, programExtra];
+  for (const prog of programs) {
+    state.runner.hand.push(prog);
+    state.runner.clicks = 4; // keep clicks up
+    state = installCard(state, prog.id, 'New Remote');
+  }
+  
+  assert(state.runner.memoryUsed === 5, 'Memory used should be 5');
+  
+  // Try to install a 6th program (required MU: 1, which exceeds the current limit of 6 because 5 + 1 = 6 which is <= 6.
+  // Wait, if limit is 6, installing a 6th program will make used = 6, which is <= 6. So 6th program should succeed.
+  // Let's verify that installing a 7th program (making used = 7, exceeding 6) fails.
+  const programExceed = createCardInstance('cleaver');
+  state.runner.hand.push(programExceed);
+  state.runner.clicks = 4;
+  state = installCard(state, programExceed.id, 'New Remote');
+  
+  // Should succeed since 5 + 1 = 6, which equals limit 6.
+  assert(state.runner.memoryUsed === 6, 'Memory used should be 6 after 6th program');
+  assert(!state.runner.hand.some(c => c.id === programExceed.id), '6th program should be installed successfully');
+  
+  // Now try to install a 7th program. This should be blocked.
+  const programExceed7th = createCardInstance('cleaver');
+  state.runner.hand.push(programExceed7th);
+  state.runner.clicks = 4;
+  state = installCard(state, programExceed7th.id, 'New Remote');
+  assert(state.runner.hand.some(c => c.id === programExceed7th.id), '7th program installation should be blocked (exceeds 6 MU)');
+  
+  // Trash T400 Memory Diamond from the rig using Retribution.
+  // We need to set tags for retribution to work.
+  state.runner.tags = 1;
+  state.corp.hand = [createCardInstance('retribution')];
+  state.activePlayer = 'Corp';
+  state.corp.clicks = 1;
+  state.corp.credits = 10;
+  state.phase = 'corp-action';
+  
+  // Retribution targets highest cost program or hardware. Let's make sure retribution behaves.
+  // Costs in rig:
+  // T400: 2
+  // Pennyshaver: 3
+  // Unity (program1): 3
+  // Cleaver (program2): 3
+  // Marjanah (program3): 0
+  // Carmen (program4): 5
+  // Unity (programExtra): 3
+  // Cleaver (programExceed): 3
+  // Highest cost is Carmen (cost 5). So Retribution will trash Carmen.
+  // Wait, if it trashes Carmen (Program), memory used should decrease by 1.
+  state = playCard(state, state.corp.hand[0].id);
+  assert(state.runner.memoryUsed === 5, 'Memory used should decrease to 5 after Carmen is trashed by Retribution');
+  assert(state.runner.memoryLimit === 6, 'Memory limit should remain 6');
+  
+  // Now let's manually trash Pennyshaver (cost 3, Console Hardware) to test hardware limit reduction.
+  const pennyIdx = state.runner.rig.findIndex(c => c.codeName === 'pennyshaver');
+  assert(pennyIdx !== -1, 'Pennyshaver must be installed');
+  const trashedPenny = state.runner.rig.splice(pennyIdx, 1)[0];
+  state.runner.discard.push(trashedPenny);
+  state = refreshRunnerMemory(state);
+  
+  // Limit should go from 6 down to 5.
+  assert(state.runner.memoryLimit === 5, 'Memory limit should decrease to 5 after trashing Pennyshaver');
+  
+  // Now used is 5, limit is 5.
+  // Try to install another program (required MU: 1). This should fail.
+  state.activePlayer = 'Runner';
+  state.runner.clicks = 4;
+  state.phase = 'runner-action';
+  const programExceed8th = createCardInstance('cleaver');
+  state.runner.hand.push(programExceed8th);
+  state = installCard(state, programExceed8th.id, 'New Remote');
+  assert(state.runner.hand.some(c => c.id === programExceed8th.id), 'Program installation should be blocked after limit decreases to 5');
+});
+
+// TEST 44: Tag Removal Basic Action & Interactive Trace Resolution
+runTest('Trace & Tag Removal: Removing tags via basic action and resolving Corp-led Traces', () => {
+  // 1. Tag Removal Action Tests
+  let state = createInitialState('runner-human', 'medium', 'tao', 'haas');
+  state.activePlayer = 'Runner';
+  state.phase = 'runner-action';
+  state.runner.clicks = 4;
+  state.runner.credits = 10;
+  state.runner.tags = 1;
+
+  // Remove tag: 1 click, 2 credits
+  state = executeBasicAction(state, 'remove-tag');
+  assert(state.runner.tags === 0, 'Tags should be 0 after removal');
+  assert(state.runner.clicks === 3, 'Clicks should decrease by 1');
+  assert(state.runner.credits === 8, 'Credits should decrease by 2');
+
+  // Try to remove tag when tags is 0 -> should fail (return original state)
+  state = executeBasicAction(state, 'remove-tag');
+  assert(state.runner.tags === 0 && state.runner.clicks === 3 && state.runner.credits === 8, 'Basic action should be blocked if no tags');
+
+  // Add a tag back and reduce credits to 1
+  state.runner.tags = 1;
+  state.runner.credits = 1;
+  state = executeBasicAction(state, 'remove-tag');
+  assert(state.runner.tags === 1, 'Tag removal should be blocked if credits < 2');
+
+  // 2. Corp-human Trace Bidding tests
+  state = createInitialState('corp-human', 'medium', 'tao', 'haas');
+  state.activePlayer = 'Corp';
+  state.phase = 'corp-action';
+  state.corp.clicks = 3;
+  state.corp.credits = 10;
+  state.runner.successfulRunLastTurn = true;
+  state.runner.credits = 10;
+
+  const publicTrail = createCardInstance('public_trail');
+  state.corp.hand.push(publicTrail);
+
+  // Play Public Trail -> transitions to trace-corp-bid since corp-human
+  state = playCard(state, publicTrail.id);
+  assert(state.phase === 'trace-corp-bid', `Corp should bid (is: ${state.phase})`);
+
+  // Corp bids 3 credits. Trace strength = 4 + 3 = 7.
+  // Runner AI has 10 credits, which is >= 7, so Runner AI should pay 7 credits and avoid the tag.
+  state = resolveTraceCorpBid(state, 3);
+  assert(state.corp.credits === 3, `Corp should have spent 3 credits (is: ${state.corp.credits})`);
+  assert(state.runner.credits === 3, `Runner AI should have spent 7 credits (is: ${state.runner.credits})`);
+  assert(state.runner.tags === 0, 'Runner tags should be 0');
+});
+
 console.log('\n🧪 ===============================================');
 console.log(`🧪    QA TEST SUITE RESULT: ${passedTests} / ${totalTests} PASSED`);
 console.log('🧪 ===============================================');
@@ -631,3 +1430,5 @@ console.log('🧪 ===============================================');
 if (passedTests !== totalTests) {
   throw new Error("QA Card Mechanics scenarios failed!");
 }
+
+
